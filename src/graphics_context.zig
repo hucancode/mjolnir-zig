@@ -7,17 +7,10 @@ const required_device_extensions = [_][*:0]const u8{vk.extensions.khr_swapchain.
 
 /// To construct base, instance and device wrappers for vulkan-zig, you need to pass a list of 'apis' to it.
 const apis: []const vk.ApiInfo = &.{
-    // You can either add invidiual functions by manually creating an 'api'
-    .{
-        .base_commands = .{
-            .createInstance = true,
-        },
-        .instance_commands = .{
-            .createDevice = true,
-        },
-    },
-    // Or you can add entire feature sets or extensions
     vk.features.version_1_0,
+    vk.features.version_1_1,
+    vk.features.version_1_2,
+    vk.features.version_1_3,
     vk.extensions.khr_surface,
     vk.extensions.khr_swapchain,
 };
@@ -61,7 +54,7 @@ pub const GraphicsContext = struct {
             .application_version = @bitCast(vk.makeApiVersion(0, 0, 0, 0)),
             .p_engine_name = app_name,
             .engine_version = @bitCast(vk.makeApiVersion(0, 0, 0, 0)),
-            .api_version = @bitCast(vk.API_VERSION_1_2),
+            .api_version = @bitCast(vk.API_VERSION_1_3),
         };
 
         const instance = try self.vkb.createInstance(&.{
