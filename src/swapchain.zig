@@ -192,7 +192,7 @@ pub const Swapchain = struct {
     }
 };
 
-const SwapImage = struct {
+pub const SwapImage = struct {
     image: vk.Image,
     view: vk.ImageView,
     image_acquired: vk.Semaphore,

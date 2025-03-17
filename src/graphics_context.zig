@@ -3,7 +3,10 @@ const vk = @import("vulkan");
 const c = @import("c.zig");
 const Allocator = std.mem.Allocator;
 
-const required_device_extensions = [_][*:0]const u8{vk.extensions.khr_swapchain.name};
+const required_device_extensions = [_][*:0]const u8{
+    vk.extensions.khr_swapchain.name,
+    vk.extensions.khr_dynamic_rendering.name,
+};
 
 /// To construct base, instance and device wrappers for vulkan-zig, you need to pass a list of 'apis' to it.
 const apis: []const vk.ApiInfo = &.{
@@ -13,6 +16,7 @@ const apis: []const vk.ApiInfo = &.{
     vk.features.version_1_3,
     vk.extensions.khr_surface,
     vk.extensions.khr_swapchain,
+    vk.extensions.khr_dynamic_rendering,
 };
 
 /// Next, pass the `apis` to the wrappers to create dispatch tables.
@@ -51,9 +55,9 @@ pub const GraphicsContext = struct {
 
         const app_info = vk.ApplicationInfo{
             .p_application_name = app_name,
-            .application_version = @bitCast(vk.makeApiVersion(0, 0, 0, 0)),
+            .application_version = @bitCast(vk.makeApiVersion(0, 1, 0, 0)),
             .p_engine_name = app_name,
-            .engine_version = @bitCast(vk.makeApiVersion(0, 0, 0, 0)),
+            .engine_version = @bitCast(vk.makeApiVersion(0, 1, 0, 0)),
             .api_version = @bitCast(vk.API_VERSION_1_3),
         };
 
@@ -165,11 +169,15 @@ fn initializeCandidate(instance: Instance, candidate: DeviceCandidate) !vk.Devic
     else
         2;
 
+    const dynamic_rendering_features = vk.PhysicalDeviceDynamicRenderingFeaturesKHR{
+        .dynamic_rendering = vk.TRUE,
+    };
     return try instance.createDevice(candidate.pdev, &.{
         .queue_create_info_count = queue_count,
         .p_queue_create_infos = &qci,
         .enabled_extension_count = required_device_extensions.len,
         .pp_enabled_extension_names = @ptrCast(&required_device_extensions),
+        .p_next = @ptrCast(&dynamic_rendering_features),
     }, null);
 }
 

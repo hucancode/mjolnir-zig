@@ -3,12 +3,13 @@ const vk = @import("vulkan");
 const c = @import("c.zig");
 const GraphicsContext = @import("graphics_context.zig").GraphicsContext;
 const Swapchain = @import("swapchain.zig").Swapchain;
+const SwapImage = @import("swapchain.zig").SwapImage;
 const Allocator = std.mem.Allocator;
 
 const vert_spv align(@alignOf(u32)) = @embedFile("vertex_shader").*;
 const frag_spv align(@alignOf(u32)) = @embedFile("fragment_shader").*;
 
-const app_name = "vulkan-zig triangle example";
+const APP_NAME = "vulkan-zig triangle example";
 
 const Vertex = struct {
     const binding_description = vk.VertexInputBindingDescription{
@@ -57,7 +58,7 @@ pub fn main() !void {
     const window = c.glfwCreateWindow(
         @intCast(extent.width),
         @intCast(extent.height),
-        app_name,
+        APP_NAME,
         null,
         null,
     ) orelse return error.WindowInitFailed;
@@ -67,7 +68,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const gc = try GraphicsContext.init(allocator, app_name, window);
+    const gc = try GraphicsContext.init(allocator, APP_NAME, window);
     defer gc.deinit();
 
     std.log.debug("Using device: {s}", .{gc.deviceName()});
@@ -84,14 +85,8 @@ pub fn main() !void {
     }, null);
     defer gc.dev.destroyPipelineLayout(pipeline_layout, null);
 
-    const render_pass = try createRenderPass(&gc, swapchain);
-    defer gc.dev.destroyRenderPass(render_pass, null);
-
-    const pipeline = try createPipeline(&gc, pipeline_layout, render_pass);
+    const pipeline = try createPipeline(&gc, pipeline_layout, swapchain.surface_format.format);
     defer gc.dev.destroyPipeline(pipeline, null);
-
-    var framebuffers = try createFramebuffers(&gc, allocator, render_pass, swapchain);
-    defer destroyFramebuffers(&gc, allocator, framebuffers);
 
     const pool = try gc.dev.createCommandPool(&.{
         .queue_family_index = gc.graphics_queue.family,
@@ -117,9 +112,8 @@ pub fn main() !void {
         allocator,
         buffer,
         swapchain.extent,
-        render_pass,
         pipeline,
-        framebuffers,
+        swapchain.swap_images,
     );
     defer destroyCommandBuffers(&gc, pool, allocator, cmdbufs);
 
@@ -146,9 +140,6 @@ pub fn main() !void {
             extent.height = @intCast(h);
             try swapchain.recreate(extent);
 
-            destroyFramebuffers(&gc, allocator, framebuffers);
-            framebuffers = try createFramebuffers(&gc, allocator, render_pass, swapchain);
-
             destroyCommandBuffers(&gc, pool, allocator, cmdbufs);
             cmdbufs = try createCommandBuffers(
                 &gc,
@@ -156,9 +147,8 @@ pub fn main() !void {
                 allocator,
                 buffer,
                 swapchain.extent,
-                render_pass,
                 pipeline,
-                framebuffers,
+                swapchain.swap_images,
             );
         }
 
@@ -231,11 +221,10 @@ fn createCommandBuffers(
     allocator: Allocator,
     buffer: vk.Buffer,
     extent: vk.Extent2D,
-    render_pass: vk.RenderPass,
     pipeline: vk.Pipeline,
-    framebuffers: []vk.Framebuffer,
+    swap_images: []const SwapImage,
 ) ![]vk.CommandBuffer {
-    const cmdbufs = try allocator.alloc(vk.CommandBuffer, framebuffers.len);
+    const cmdbufs = try allocator.alloc(vk.CommandBuffer, swap_images.len);
     errdefer allocator.free(cmdbufs);
 
     try gc.dev.allocateCommandBuffers(&.{
@@ -263,32 +252,73 @@ fn createCommandBuffers(
         .extent = extent,
     };
 
-    for (cmdbufs, framebuffers) |cmdbuf, framebuffer| {
+    for (cmdbufs, swap_images) |cmdbuf, swap_image| {
         try gc.dev.beginCommandBuffer(cmdbuf, &.{});
 
+        // Pre-render image transition (UNDEFINED -> COLOR_ATTACHMENT_OPTIMAL)
+        const pre_render_barrier = vk.ImageMemoryBarrier{
+            .src_access_mask = .{},
+            .dst_access_mask = .{ .color_attachment_write_bit = true },
+            .old_layout = .undefined,
+            .new_layout = .color_attachment_optimal,
+            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .image = swap_image.image,
+            .subresource_range = .{
+                .aspect_mask = .{ .color_bit = true },
+                .base_mip_level = 0,
+                .level_count = 1,
+                .base_array_layer = 0,
+                .layer_count = 1,
+            },
+        };
+
+        gc.dev.cmdPipelineBarrier(cmdbuf, .{ .top_of_pipe_bit = true }, .{ .color_attachment_output_bit = true }, .{}, 0, undefined, 0, undefined, 1, @ptrCast(&pre_render_barrier));
         gc.dev.cmdSetViewport(cmdbuf, 0, 1, @ptrCast(&viewport));
         gc.dev.cmdSetScissor(cmdbuf, 0, 1, @ptrCast(&scissor));
 
-        // This needs to be a separate definition - see https://github.com/ziglang/zig/issues/7627.
-        const render_area = vk.Rect2D{
-            .offset = .{ .x = 0, .y = 0 },
-            .extent = extent,
+        // Dynamic rendering begin
+        const color_attachment = vk.RenderingAttachmentInfoKHR{
+            .image_view = swap_image.view,
+            .image_layout = .color_attachment_optimal,
+            .load_op = .clear,
+            .store_op = .store,
+            .clear_value = clear,
+            .resolve_image_layout = undefined,
+            .resolve_mode = undefined,
         };
-
-        gc.dev.cmdBeginRenderPass(cmdbuf, &.{
-            .render_pass = render_pass,
-            .framebuffer = framebuffer,
+        const render_area = vk.Rect2D{ .offset = vk.Offset2D{ .x = 0, .y = 0 }, .extent = extent };
+        const rendering_info = vk.RenderingInfoKHR{
             .render_area = render_area,
-            .clear_value_count = 1,
-            .p_clear_values = @ptrCast(&clear),
-        }, .@"inline");
+            .layer_count = 1,
+            .color_attachment_count = 1,
+            .p_color_attachments = @ptrCast(&color_attachment),
+            .view_mask = 0,
+        };
+        gc.dev.cmdBeginRenderingKHR(cmdbuf, &rendering_info);
 
+        // Bind pipeline and draw
         gc.dev.cmdBindPipeline(cmdbuf, .graphics, pipeline);
         const offset = [_]vk.DeviceSize{0};
         gc.dev.cmdBindVertexBuffers(cmdbuf, 0, 1, @ptrCast(&buffer), &offset);
         gc.dev.cmdDraw(cmdbuf, vertices.len, 1, 0, 0);
 
-        gc.dev.cmdEndRenderPass(cmdbuf);
+        gc.dev.cmdEndRenderingKHR(cmdbuf);
+
+        // Post-render transition (COLOR_ATTACHMENT_OPTIMAL -> PRESENT_SRC_KHR)
+        const post_render_barrier = vk.ImageMemoryBarrier{
+            .src_access_mask = .{ .color_attachment_write_bit = true },
+            .dst_access_mask = .{},
+            .old_layout = .color_attachment_optimal,
+            .new_layout = .present_src_khr,
+            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .image = swap_image.image,
+            .subresource_range = pre_render_barrier.subresource_range,
+        };
+
+        gc.dev.cmdPipelineBarrier(cmdbuf, .{ .color_attachment_output_bit = true }, .{ .bottom_of_pipe_bit = true }, .{}, 0, undefined, 0, undefined, 1, @ptrCast(&post_render_barrier));
+
         try gc.dev.endCommandBuffer(cmdbuf);
     }
 
@@ -300,68 +330,10 @@ fn destroyCommandBuffers(gc: *const GraphicsContext, pool: vk.CommandPool, alloc
     allocator.free(cmdbufs);
 }
 
-fn createFramebuffers(gc: *const GraphicsContext, allocator: Allocator, render_pass: vk.RenderPass, swapchain: Swapchain) ![]vk.Framebuffer {
-    const framebuffers = try allocator.alloc(vk.Framebuffer, swapchain.swap_images.len);
-    errdefer allocator.free(framebuffers);
-
-    var i: usize = 0;
-    errdefer for (framebuffers[0..i]) |fb| gc.dev.destroyFramebuffer(fb, null);
-
-    for (framebuffers) |*fb| {
-        fb.* = try gc.dev.createFramebuffer(&.{
-            .render_pass = render_pass,
-            .attachment_count = 1,
-            .p_attachments = @ptrCast(&swapchain.swap_images[i].view),
-            .width = swapchain.extent.width,
-            .height = swapchain.extent.height,
-            .layers = 1,
-        }, null);
-        i += 1;
-    }
-
-    return framebuffers;
-}
-
-fn destroyFramebuffers(gc: *const GraphicsContext, allocator: Allocator, framebuffers: []const vk.Framebuffer) void {
-    for (framebuffers) |fb| gc.dev.destroyFramebuffer(fb, null);
-    allocator.free(framebuffers);
-}
-
-fn createRenderPass(gc: *const GraphicsContext, swapchain: Swapchain) !vk.RenderPass {
-    const color_attachment = vk.AttachmentDescription{
-        .format = swapchain.surface_format.format,
-        .samples = .{ .@"1_bit" = true },
-        .load_op = .clear,
-        .store_op = .store,
-        .stencil_load_op = .dont_care,
-        .stencil_store_op = .dont_care,
-        .initial_layout = .undefined,
-        .final_layout = .present_src_khr,
-    };
-
-    const color_attachment_ref = vk.AttachmentReference{
-        .attachment = 0,
-        .layout = .color_attachment_optimal,
-    };
-
-    const subpass = vk.SubpassDescription{
-        .pipeline_bind_point = .graphics,
-        .color_attachment_count = 1,
-        .p_color_attachments = @ptrCast(&color_attachment_ref),
-    };
-
-    return try gc.dev.createRenderPass(&.{
-        .attachment_count = 1,
-        .p_attachments = @ptrCast(&color_attachment),
-        .subpass_count = 1,
-        .p_subpasses = @ptrCast(&subpass),
-    }, null);
-}
-
 fn createPipeline(
     gc: *const GraphicsContext,
     layout: vk.PipelineLayout,
-    render_pass: vk.RenderPass,
+    surface_format: vk.Format,
 ) !vk.Pipeline {
     const vert = try gc.dev.createShaderModule(&.{
         .code_size = vert_spv.len,
@@ -454,9 +426,17 @@ fn createPipeline(
         .p_dynamic_states = &dynstate,
     };
 
+    const dynamic_rendering_info = vk.PipelineRenderingCreateInfoKHR{
+        .color_attachment_count = 1,
+        .p_color_attachment_formats = @ptrCast(&[_]vk.Format{surface_format}),
+        .depth_attachment_format = .undefined,
+        .stencil_attachment_format = .undefined,
+        .view_mask = 0,
+    };
+
     const gpci = vk.GraphicsPipelineCreateInfo{
         .flags = .{},
-        .stage_count = 2,
+        .stage_count = pssci.len,
         .p_stages = &pssci,
         .p_vertex_input_state = &pvisci,
         .p_input_assembly_state = &piasci,
@@ -468,10 +448,11 @@ fn createPipeline(
         .p_color_blend_state = &pcbsci,
         .p_dynamic_state = &pdsci,
         .layout = layout,
-        .render_pass = render_pass,
+        .render_pass = .null_handle,
         .subpass = 0,
         .base_pipeline_handle = .null_handle,
         .base_pipeline_index = -1,
+        .p_next = @ptrCast(&dynamic_rendering_info),
     };
 
     var pipeline: vk.Pipeline = undefined;
