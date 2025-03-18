@@ -13,6 +13,15 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     b.installArtifact(exe);
+    add_dependency(b, exe, target);
+    compile_shader(b, exe);
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.step.dependOn(b.getInstallStep());
+    const run_step = b.step("run", "Run the application");
+    run_step.dependOn(&run_cmd.step);
+}
+
+fn add_dependency(b: *std.Build, exe: *std.Build.Step.Compile, target: std.Build.ResolvedTarget) void {
     const zglfw = b.dependency("zglfw", .{});
     exe.root_module.addImport("zglfw", zglfw.module("root"));
     if (target.result.os.tag != .emscripten) {
@@ -30,6 +39,9 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("vulkan", vulkan.module("vulkan-zig"));
     // add path to system library directory where vulkan library at, in case it is not in $DYLD_LIBRARY_PATH
     // exe.addLibraryPath(std.Build.LazyPath{ .src_path = .{ .owner = b, .sub_path = "/usr/local/lib" } });
+}
+
+fn compile_shader(b: *std.Build, exe: *std.Build.Step.Compile) void {
     const vert_cmd = b.addSystemCommand(&.{
         "glslc",
         "--target-env=vulkan1.3",
@@ -40,7 +52,6 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addAnonymousImport("vertex_shader", .{
         .root_source_file = vert_spv,
     });
-
     const frag_cmd = b.addSystemCommand(&.{
         "glslc",
         "--target-env=vulkan1.3",
@@ -51,10 +62,4 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addAnonymousImport("fragment_shader", .{
         .root_source_file = frag_spv,
     });
-
-    const run_cmd = b.addRunArtifact(exe);
-    run_cmd.step.dependOn(b.getInstallStep());
-
-    const run_step = b.step("run", "Run the application");
-    run_step.dependOn(&run_cmd.step);
 }
