@@ -17,9 +17,9 @@ pub fn build(b: *std.Build) void {
 
     const vulkan = b.dependency("vulkan_zig", .{
         .registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml"),
-    }).module("vulkan-zig");
+    });
 
-    exe.root_module.addImport("vulkan", vulkan);
+    exe.root_module.addImport("vulkan", vulkan.module("vulkan-zig"));
 
     const vert_cmd = b.addSystemCommand(&.{
         "glslc",

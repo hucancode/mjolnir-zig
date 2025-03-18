@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const vk = @import("vulkan");
 const c = @import("c.zig");
@@ -8,23 +9,21 @@ const required_device_extensions = [_][*:0]const u8{
     vk.extensions.khr_dynamic_rendering.name,
 };
 
-/// To construct base, instance and device wrappers for vulkan-zig, you need to pass a list of 'apis' to it.
 const apis: []const vk.ApiInfo = &.{
     vk.features.version_1_0,
     vk.features.version_1_1,
     vk.features.version_1_2,
-    vk.features.version_1_3,
+    // vk.features.version_1_3, // MacOS MoltenVK does not support this
     vk.extensions.khr_surface,
     vk.extensions.khr_swapchain,
     vk.extensions.khr_dynamic_rendering,
+    vk.extensions.khr_portability_enumeration,
 };
 
-/// Next, pass the `apis` to the wrappers to create dispatch tables.
 const BaseDispatch = vk.BaseWrapper(apis);
 const InstanceDispatch = vk.InstanceWrapper(apis);
 const DeviceDispatch = vk.DeviceWrapper(apis);
 
-// Also create some proxying wrappers, which also have the respective handles
 const Instance = vk.InstanceProxy(apis);
 const Device = vk.DeviceProxy(apis);
 
@@ -52,6 +51,22 @@ pub const GraphicsContext = struct {
 
         var glfw_exts_count: u32 = 0;
         const glfw_exts = c.glfwGetRequiredInstanceExtensions(&glfw_exts_count);
+        var extensions: [][*c]const u8 = undefined;
+        if (builtin.target.os.tag == .macos) {
+            extensions = try allocator.alloc([*c]const u8, glfw_exts_count + 1);
+            @memcpy(extensions[0..glfw_exts_count], glfw_exts[0..glfw_exts_count]);
+            extensions[glfw_exts_count] = vk.extensions.khr_portability_enumeration.name;
+            glfw_exts_count += 1;
+        } else {
+            extensions = try allocator.alloc([*c]const u8, glfw_exts_count);
+            @memcpy(extensions[0..glfw_exts_count], glfw_exts[0..glfw_exts_count]);
+        }
+        defer allocator.free(extensions);
+
+        std.debug.print("Number of extensions: {}\n", .{extensions.len});
+        for (extensions) |e| {
+            std.debug.print("Extension: {s}\n", .{e});
+        }
 
         const app_info = vk.ApplicationInfo{
             .p_application_name = app_name,
@@ -63,8 +78,9 @@ pub const GraphicsContext = struct {
 
         const instance = try self.vkb.createInstance(&.{
             .p_application_info = &app_info,
-            .enabled_extension_count = glfw_exts_count,
-            .pp_enabled_extension_names = @ptrCast(glfw_exts),
+            .enabled_extension_count = @intCast(extensions.len),
+            .pp_enabled_extension_names = @ptrCast(extensions),
+            .flags = .{ .enumerate_portability_bit_khr = true },
         }, null);
 
         const vki = try allocator.create(InstanceDispatch);
