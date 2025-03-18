@@ -1,7 +1,8 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const vk = @import("vulkan");
-const c = @import("c.zig");
+const glfw = @import("zglfw");
+const glfw_vk = @import("glfw_vulkan.zig");
 const Allocator = std.mem.Allocator;
 
 const required_device_extensions = [_][*:0]const u8{
@@ -44,21 +45,19 @@ pub const GraphicsContext = struct {
     graphics_queue: Queue,
     present_queue: Queue,
 
-    pub fn init(allocator: Allocator, app_name: [*:0]const u8, window: *c.GLFWwindow) !GraphicsContext {
+    pub fn init(allocator: Allocator, app_name: [*:0]const u8, window: *glfw.Window) !GraphicsContext {
         var self: GraphicsContext = undefined;
         self.allocator = allocator;
-        self.vkb = try BaseDispatch.load(c.glfwGetInstanceProcAddress);
-        var glfw_exts_count: u32 = 0;
-        const glfw_exts = c.glfwGetRequiredInstanceExtensions(&glfw_exts_count);
+        self.vkb = try BaseDispatch.load(glfw_vk.getInstanceProcAddress);
+        const glfw_exts = try glfw.getRequiredInstanceExtensions();
         var extensions: [][*c]const u8 = undefined;
         if (builtin.target.os.tag == .macos) {
-            extensions = try allocator.alloc([*c]const u8, glfw_exts_count + 1);
-            @memcpy(extensions[0..glfw_exts_count], glfw_exts[0..glfw_exts_count]);
-            extensions[glfw_exts_count] = vk.extensions.khr_portability_enumeration.name;
-            glfw_exts_count += 1;
+            extensions = try allocator.alloc([*c]const u8, glfw_exts.len + 1);
+            @memcpy(extensions[0..glfw_exts.len], glfw_exts[0..glfw_exts.len]);
+            extensions[glfw_exts.len] = vk.extensions.khr_portability_enumeration.name;
         } else {
-            extensions = try allocator.alloc([*c]const u8, glfw_exts_count);
-            @memcpy(extensions[0..glfw_exts_count], glfw_exts[0..glfw_exts_count]);
+            extensions = try allocator.alloc([*c]const u8, glfw_exts.len);
+            @memcpy(extensions[0..glfw_exts.len], glfw_exts[0..glfw_exts.len]);
         }
         defer allocator.free(extensions);
         std.debug.print("Number of extensions: {}\n", .{extensions.len});
@@ -147,12 +146,11 @@ pub const Queue = struct {
     }
 };
 
-fn createSurface(instance: Instance, window: *c.GLFWwindow) !vk.SurfaceKHR {
+fn createSurface(instance: Instance, window: *glfw.Window) !vk.SurfaceKHR {
     var surface: vk.SurfaceKHR = undefined;
-    if (c.glfwCreateWindowSurface(instance.handle, window, null, &surface) != .success) {
+    if (glfw_vk.createWindowSurface(instance.handle, window, null, &surface) != .success) {
         return error.SurfaceInitFailed;
     }
-
     return surface;
 }
 

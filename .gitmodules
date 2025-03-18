@@ -1,3 +1,15 @@
 [submodule "lib/vulkan"]
 	path = lib/vulkan
 	url = git@github.com:Snektron/vulkan-zig.git
+[submodule "lib/zmath"]
+	path = lib/zmath
+	url = git@github.com:zig-gamedev/zmath.git
+[submodule "lib/zstbi"]
+	path = lib/zstbi
+	url = git@github.com:zig-gamedev/zstbi.git
+[submodule "lib/zmesh"]
+	path = lib/zmesh
+	url = git@github.com:zig-gamedev/zmesh.git
+[submodule "lib/zglfw"]
+	path = lib/zglfw
+	url = git@github.com:zig-gamedev/zglfw.git

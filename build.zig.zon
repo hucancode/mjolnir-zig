@@ -4,6 +4,18 @@
     .version = "0.0.0",
     .minimum_zig_version = "0.14.0",
     .dependencies = .{
+        .zglfw = .{
+            .path = "lib/zglfw",
+        },
+        .zmesh = .{
+            .path = "lib/zmesh",
+        },
+        .zmath = .{
+            .path = "lib/zmath",
+        },
+        .zstbi = .{
+            .path = "lib/zstbi",
+        },
         .vulkan_zig = .{
             .path = "lib/vulkan",
         },
