@@ -48,7 +48,6 @@ pub const GraphicsContext = struct {
         var self: GraphicsContext = undefined;
         self.allocator = allocator;
         self.vkb = try BaseDispatch.load(c.glfwGetInstanceProcAddress);
-
         var glfw_exts_count: u32 = 0;
         const glfw_exts = c.glfwGetRequiredInstanceExtensions(&glfw_exts_count);
         var extensions: [][*c]const u8 = undefined;
@@ -62,53 +61,45 @@ pub const GraphicsContext = struct {
             @memcpy(extensions[0..glfw_exts_count], glfw_exts[0..glfw_exts_count]);
         }
         defer allocator.free(extensions);
-
         std.debug.print("Number of extensions: {}\n", .{extensions.len});
         for (extensions) |e| {
             std.debug.print("Extension: {s}\n", .{e});
         }
-
         const app_info = vk.ApplicationInfo{
             .p_application_name = app_name,
             .application_version = @bitCast(vk.makeApiVersion(0, 1, 0, 0)),
             .p_engine_name = app_name,
             .engine_version = @bitCast(vk.makeApiVersion(0, 1, 0, 0)),
-            .api_version = @bitCast(vk.API_VERSION_1_3),
+            .api_version = @bitCast(vk.API_VERSION_1_2),
         };
-
-        const instance = try self.vkb.createInstance(&.{
+        var create_info = vk.InstanceCreateInfo{
             .p_application_info = &app_info,
             .enabled_extension_count = @intCast(extensions.len),
             .pp_enabled_extension_names = @ptrCast(extensions),
-            .flags = .{ .enumerate_portability_bit_khr = true },
-        }, null);
-
+        };
+        if (builtin.target.os.tag == .macos) {
+            create_info.flags.enumerate_portability_bit_khr = true;
+        }
+        const instance = try self.vkb.createInstance(&create_info, null);
         const vki = try allocator.create(InstanceDispatch);
         errdefer allocator.destroy(vki);
         vki.* = try InstanceDispatch.load(instance, self.vkb.dispatch.vkGetInstanceProcAddr);
         self.instance = Instance.init(instance, vki);
         errdefer self.instance.destroyInstance(null);
-
         self.surface = try createSurface(self.instance, window);
         errdefer self.instance.destroySurfaceKHR(self.surface, null);
-
         const candidate = try pickPhysicalDevice(self.instance, allocator, self.surface);
         self.pdev = candidate.pdev;
         self.props = candidate.props;
-
         const dev = try initializeCandidate(self.instance, candidate);
-
         const vkd = try allocator.create(DeviceDispatch);
         errdefer allocator.destroy(vkd);
         vkd.* = try DeviceDispatch.load(dev, self.instance.wrapper.dispatch.vkGetDeviceProcAddr);
         self.dev = Device.init(dev, vkd);
         errdefer self.dev.destroyDevice(null);
-
         self.graphics_queue = Queue.init(self.dev, candidate.queues.graphics_family);
         self.present_queue = Queue.init(self.dev, candidate.queues.present_family);
-
         self.mem_props = self.instance.getPhysicalDeviceMemoryProperties(self.pdev);
-
         return self;
     }
 
