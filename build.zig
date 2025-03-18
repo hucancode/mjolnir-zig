@@ -13,14 +13,23 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     b.installArtifact(exe);
-    exe.linkSystemLibrary("glfw");
-
+    const zglfw = b.dependency("zglfw", .{});
+    exe.root_module.addImport("zglfw", zglfw.module("root"));
+    if (target.result.os.tag != .emscripten) {
+        exe.linkLibrary(zglfw.artifact("glfw"));
+    }
+    const zmath = b.dependency("zmath", .{});
+    exe.root_module.addImport("zmath", zmath.module("root"));
+    const zstbi = b.dependency("zstbi", .{});
+    exe.root_module.addImport("zstbi", zstbi.module("root"));
+    const zmesh = b.dependency("zmesh", .{});
+    exe.root_module.addImport("zmesh", zmesh.module("root"));
     const vulkan = b.dependency("vulkan_zig", .{
         .registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml"),
     });
-
     exe.root_module.addImport("vulkan", vulkan.module("vulkan-zig"));
-
+    // add path to system library directory where vulkan library at, in case it is not in $DYLD_LIBRARY_PATH
+    // exe.addLibraryPath(std.Build.LazyPath{ .src_path = .{ .owner = b, .sub_path = "/usr/local/lib" } });
     const vert_cmd = b.addSystemCommand(&.{
         "glslc",
         "--target-env=vulkan1.3",

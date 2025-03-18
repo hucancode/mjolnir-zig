@@ -1,6 +1,6 @@
 const std = @import("std");
 const vk = @import("vulkan");
-const c = @import("c.zig");
+const glfw = @import("zglfw");
 const GraphicsContext = @import("graphics_context.zig").GraphicsContext;
 const Swapchain = @import("swapchain.zig").Swapchain;
 const SwapImage = @import("swapchain.zig").SwapImage;
@@ -43,36 +43,32 @@ const vertices = [_]Vertex{
     .{ .pos = .{ -0.5, 0.5 }, .color = .{ 0, 0, 1 } },
 };
 
-pub fn main() !void {
-    if (c.glfwInit() != c.GLFW_TRUE) return error.GlfwInitFailed;
-    defer c.glfwTerminate();
+fn glfwErrorCallback(error_code: c_int, description: ?[*:0]const u8) callconv(.C) void {
+    std.log.err("GLFW error({x}): {s}", .{ error_code, description orelse "no description provided" });
+}
 
-    if (c.glfwVulkanSupported() != c.GLFW_TRUE) {
-        std.log.err("GLFW could not find libvulkan", .{});
+pub fn main() !void {
+    _ = glfw.setErrorCallback(glfwErrorCallback);
+    try glfw.init();
+    defer glfw.terminate();
+    if (!glfw.isVulkanSupported()) {
         return error.NoVulkan;
     }
-
     var extent = vk.Extent2D{ .width = 800, .height = 600 };
-
-    c.glfwWindowHint(c.GLFW_CLIENT_API, c.GLFW_NO_API);
-    const window = c.glfwCreateWindow(
+    glfw.windowHint(.client_api, .no_api);
+    const window = try glfw.createWindow(
         @intCast(extent.width),
         @intCast(extent.height),
         APP_NAME,
         null,
-        null,
-    ) orelse return error.WindowInitFailed;
-    defer c.glfwDestroyWindow(window);
-
+    );
+    defer glfw.destroyWindow(window);
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-
     const gc = try GraphicsContext.init(allocator, APP_NAME, window);
     defer gc.deinit();
-
     std.log.debug("Using device: {s}", .{gc.deviceName()});
-
     var swapchain = try Swapchain.init(&gc, allocator, extent);
     defer swapchain.deinit();
 
@@ -117,14 +113,13 @@ pub fn main() !void {
     );
     defer destroyCommandBuffers(&gc, pool, allocator, cmdbufs);
 
-    while (c.glfwWindowShouldClose(window) == c.GLFW_FALSE) {
+    while (!glfw.windowShouldClose(window)) {
+        glfw.pollEvents();
         var w: c_int = undefined;
         var h: c_int = undefined;
-        c.glfwGetFramebufferSize(window, &w, &h);
-
+        glfw.getFramebufferSize(window, &w, &h);
         // Don't present or resize swapchain while the window is minimized
         if (w == 0 or h == 0) {
-            c.glfwPollEvents();
             continue;
         }
 
@@ -151,8 +146,6 @@ pub fn main() !void {
                 swapchain.swap_images,
             );
         }
-
-        c.glfwPollEvents();
     }
 
     try swapchain.waitForAllFences();
