@@ -67,7 +67,7 @@ pub const GraphicsContext = struct {
         const app_info = vk.ApplicationInfo{
             .p_application_name = app_name,
             .application_version = @bitCast(vk.makeApiVersion(0, 1, 0, 0)),
-            .p_engine_name = app_name,
+            .p_engine_name = "Mjolnir",
             .engine_version = @bitCast(vk.makeApiVersion(0, 1, 0, 0)),
             .api_version = @bitCast(vk.API_VERSION_1_2),
         };

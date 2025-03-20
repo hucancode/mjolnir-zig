@@ -9,7 +9,7 @@ const Allocator = std.mem.Allocator;
 const vert_spv align(@alignOf(u32)) = @embedFile("vertex_shader").*;
 const frag_spv align(@alignOf(u32)) = @embedFile("fragment_shader").*;
 
-const APP_NAME = "vulkan-zig triangle example";
+const APP_NAME = "Mjolnir";
 
 const Vertex = struct {
     const binding_description = vk.VertexInputBindingDescription{
