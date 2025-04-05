@@ -14,7 +14,8 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
     add_dependency(b, exe, target);
-    compile_shader(b, exe);
+    compile_shader(b, exe, "src/mj/engine/shaders/pbr");
+    compile_shader(b, exe, "src/mj/engine/shaders/skinned_pbr");
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     const run_step = b.step("run", "Run the application");
@@ -41,15 +42,18 @@ fn add_dependency(b: *std.Build, exe: *std.Build.Step.Compile, target: std.Build
     // exe.addLibraryPath(std.Build.LazyPath{ .src_path = .{ .owner = b, .sub_path = "/usr/local/lib" } });
 }
 
-fn compile_shader(b: *std.Build, exe: *std.Build.Step.Compile) void {
+fn compile_shader(b: *std.Build, exe: *std.Build.Step.Compile, path: []const u8) void {
+    var buffer: [1000]u8 = undefined;
     const vert_cmd = b.addSystemCommand(&.{
         "glslc",
         "--target-env=vulkan1.3",
         "-o",
     });
-    const vert_spv = vert_cmd.addOutputFileArg("src/shaders/triangle.vert.spv");
-    vert_cmd.addFileArg(b.path("src/shaders/triangle.vert"));
-    exe.root_module.addAnonymousImport("vertex_shader", .{
+    const vert_spv_path = std.fmt.bufPrint(&buffer, "{s}.vert.spv", .{path}) catch unreachable;
+    const vert_spv = vert_cmd.addOutputFileArg(vert_spv_path);
+    const vert_path = std.fmt.bufPrint(&buffer, "{s}.vert", .{path}) catch unreachable;
+    vert_cmd.addFileArg(b.path(vert_path));
+    exe.root_module.addAnonymousImport(vert_spv_path, .{
         .root_source_file = vert_spv,
     });
     const frag_cmd = b.addSystemCommand(&.{
@@ -57,9 +61,11 @@ fn compile_shader(b: *std.Build, exe: *std.Build.Step.Compile) void {
         "--target-env=vulkan1.3",
         "-o",
     });
-    const frag_spv = frag_cmd.addOutputFileArg("src/shaders/triangle.frag.spv");
-    frag_cmd.addFileArg(b.path("src/shaders/triangle.frag"));
-    exe.root_module.addAnonymousImport("fragment_shader", .{
+    const frag_spv_path = std.fmt.bufPrint(&buffer, "{s}.frag.spv", .{path}) catch unreachable;
+    const frag_spv = frag_cmd.addOutputFileArg(frag_spv_path);
+    const frag_path = std.fmt.bufPrint(&buffer, "{s}.frag", .{path}) catch unreachable;
+    frag_cmd.addFileArg(b.path(frag_path));
+    exe.root_module.addAnonymousImport(frag_spv_path, .{
         .root_source_file = frag_spv,
     });
 }
