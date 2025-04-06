@@ -50,7 +50,8 @@ pub fn main() !void {
         }
     }
 
-    e.scene.camera.perspective.position = .{ 0.0, 5.0, 10.0, 1.0 };
+    e.scene.camera.position = .{ 0.0, 5.0, -10.0, 0.0 };
+    e.scene.camera.lookAt(.{ 0.0, 0.0, 0.0, 0.0 });
     std.debug.print("App initialized\n", .{});
 
     while (!e.shouldClose()) {
@@ -60,6 +61,9 @@ pub fn main() !void {
                 const node = e.resource.nodes.get(cube) orelse continue;
                 node.transform.rotation = zm.quatFromNormAxisAngle(.{ 0.0, 1.0, 0.0, 0.0 }, std.math.pi * e.getTime() * 0.5);
             }
+            const look_at: zm.Vec = .{ 0.0, std.math.sin(std.math.pi * e.getTime() * 0.3) * 5.0 - 3.0, -5.0, 0.0 };
+            e.scene.camera.lookAt(look_at);
+            //std.debug.print("{}\n", .{look_at});
         }
         e.render();
     }
