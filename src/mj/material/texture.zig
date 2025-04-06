@@ -15,9 +15,6 @@ pub const Texture = struct {
     pub fn init() Texture {
         return .{
             .pixels = undefined,
-            .width = 0,
-            .height = 0,
-            .channel_count = 0,
             .buffer = undefined,
             .sampler = .null_handle,
         };

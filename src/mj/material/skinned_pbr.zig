@@ -55,7 +55,6 @@ pub const SkinnedMaterial = struct {
             .descriptor_type = .combined_image_sampler,
             .descriptor_count = 1,
             .stage_flags = .{ .fragment_bit = true },
-            .p_immutable_samplers = null,
         };
 
         const roughness_binding = vk.DescriptorSetLayoutBinding{
@@ -63,7 +62,6 @@ pub const SkinnedMaterial = struct {
             .descriptor_type = .combined_image_sampler,
             .descriptor_count = 1,
             .stage_flags = .{ .fragment_bit = true },
-            .p_immutable_samplers = null,
         };
 
         const bones_binding = vk.DescriptorSetLayoutBinding{
@@ -71,7 +69,6 @@ pub const SkinnedMaterial = struct {
             .descriptor_type = .storage_buffer,
             .descriptor_count = 1,
             .stage_flags = .{ .vertex_bit = true },
-            .p_immutable_samplers = null,
         };
 
         const bindings = [_]vk.DescriptorSetLayoutBinding{
@@ -92,7 +89,7 @@ pub const SkinnedMaterial = struct {
         const alloc_info = vk.DescriptorSetAllocateInfo{
             .descriptor_pool = context.descriptor_pool,
             .descriptor_set_count = 1,
-            .p_set_layouts = &self.descriptor_set_layout,
+            .p_set_layouts = @ptrCast(&self.descriptor_set_layout),
         };
 
         try context.vkd.allocateDescriptorSets(&alloc_info, &self.descriptor_set);
@@ -200,10 +197,10 @@ pub const SkinnedMaterial = struct {
 pub fn buildSkinnedMaterial(engine: *Engine, mat: *SkinnedMaterial, vertex_code: []align(@alignOf(u32)) const u8, fragment_code: []align(@alignOf(u32)) const u8) !void {
     // Create shader modules
     const vert_shader = try engine.context.createShaderModule(vertex_code);
-    defer engine.vkd.destroyShaderModule(vert_shader, null);
+    defer engine.context.vkd.destroyShaderModule(vert_shader, null);
 
     const frag_shader = try engine.context.createShaderModule(fragment_code);
-    defer engine.vkd.destroyShaderModule(frag_shader, null);
+    defer engine.context.vkd.destroyShaderModule(frag_shader, null);
 
     // Create shader stages
     const shader_stages = [_]vk.PipelineShaderStageCreateInfo{
@@ -325,7 +322,7 @@ pub fn buildSkinnedMaterial(engine: *Engine, mat: *SkinnedMaterial, vertex_code:
         .p_push_constant_ranges = @ptrCast(&push_constant),
     };
 
-    mat.pipeline_layout = try engine.vkd.createPipelineLayout(&layout_info, null);
+    mat.pipeline_layout = try engine.context.vkd.createPipelineLayout(&layout_info, null);
 
     const rendering_info = vk.PipelineRenderingCreateInfoKHR{
         .color_attachment_count = 1,

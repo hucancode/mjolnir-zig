@@ -75,6 +75,7 @@ pub fn ResourcePool(comptime T: type) type {
             if (entry.generation != handle.generation) {
                 return;
             }
+            self.entries.items[handle.index].active = false;
             self.entries.items[handle.index].generation += 1;
             self.free_indices.append(handle.index) catch {};
         }

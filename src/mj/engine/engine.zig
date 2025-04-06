@@ -26,10 +26,10 @@ const buildMaterial = @import("../material/pbr.zig").buildMaterial;
 const buildSkinnedMaterial = @import("../material/skinned_pbr.zig").buildSkinnedMaterial;
 const buildCube = @import("../geometry/static_mesh.zig").buildCube;
 const writeBuffer = @import("context.zig").writeBuffer;
-const RENDER_FPS = 120.0;
+const RENDER_FPS = 60.0;
 const FRAME_TIME = 1.0 / RENDER_FPS;
 const FRAME_TIME_NANO: u64 = @intFromFloat(FRAME_TIME * 1_000_000_000.0);
-const UPDATE_FPS = 8.0;
+const UPDATE_FPS = 30.0;
 const UPDATE_FRAME_TIME = 1.0 / UPDATE_FPS;
 const UPDATE_FRAME_TIME_NANO: u64 = @intFromFloat(UPDATE_FRAME_TIME * 1_000_000_000.0);
 
@@ -199,9 +199,7 @@ pub const Engine = struct {
                         }
                     }
                 },
-                else => {
-                    std.debug.print("Unknown node type {any}, handle = {d} - {d}\n", .{ node.data, handle.index, handle.generation });
-                },
+                .none => {},
             }
             for (node.children.items) |child| {
                 if (child.index == self.scene.root.index) {
@@ -408,8 +406,8 @@ pub const Engine = struct {
         const mat = self.resource.getSkinnedMaterial(material_handle) orelse {
             return error.ResourceAllocationFailed;
         };
-        const vertex_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr.vert").*;
-        const fragment_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr.frag").*;
+        const vertex_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr.vert.spv").*;
+        const fragment_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr.frag.spv").*;
         mat.max_bones = max_bones;
         try mat.initDescriptorSet(self.context);
         try buildSkinnedMaterial(mat, self, &vertex_code, &fragment_code);
