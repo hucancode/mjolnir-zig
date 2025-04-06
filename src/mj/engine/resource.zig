@@ -15,8 +15,8 @@ const Node = @import("../scene/node.zig").Node;
 const NodeType = @import("../scene/node.zig").NodeType;
 
 pub const Handle = struct {
-    index: u24,
-    generation: u8,
+    index: u24 = 0,
+    generation: u8 = 1,
 };
 
 /// Entry in a resource pool
@@ -81,24 +81,15 @@ pub fn ResourcePool(comptime T: type) type {
 
         pub fn get(self: *Self, handle: Handle) ?*T {
             if (handle.index >= self.entries.items.len) {
-                std.debug.print("ResourcePool.get: index ({d}) out of bounds ({d})\n", .{
-                    handle.index, self.entries.items.len,
-                });
+                // std.debug.print("ResourcePool.get: index ({d}) out of bounds ({d})\n", .{ handle.index, self.entries.items.len });
                 return null;
             }
             if (!self.entries.items[handle.index].active) {
-                std.debug.print("ResourcePool.get: index ({d}) has been freed\n", .{handle.index});
+                // std.debug.print("ResourcePool.get: index ({d}) has been freed\n", .{handle.index});
                 return null;
             }
             if (self.entries.items[handle.index].generation != handle.generation) {
-                std.debug.print(
-                    "ResourcePool.get: index ({d}) has been allocated to other resource, its generation is changed from {d} to {d}\n",
-                    .{
-                        handle.index,
-                        handle.generation,
-                        self.entries.items[handle.index].generation,
-                    },
-                );
+                // std.debug.print("ResourcePool.get: index ({d}) has been deallocated, its generation is changed from {d} to {d}\n", .{ handle.index, handle.generation, self.entries.items[handle.index].generation });
                 return null;
             }
             return &self.entries.items[handle.index].item;
@@ -130,7 +121,28 @@ pub const ResourceManager = struct {
         };
     }
 
-    pub fn deinit(self: *ResourceManager) void {
+    pub fn deinit(self: *ResourceManager, context: *VulkanContext) void {
+        for (self.nodes.entries.items, 0..) |entry, i| {
+            self.deinitNode(.{ .index = @intCast(i), .generation = entry.generation });
+        }
+        for (self.meshes.entries.items, 0..) |entry, i| {
+            self.deinitMesh(.{ .index = @intCast(i), .generation = entry.generation }, context);
+        }
+        for (self.skeletal_meshes.entries.items, 0..) |entry, i| {
+            self.deinitSkeletalMesh(.{ .index = @intCast(i), .generation = entry.generation }, context);
+        }
+        for (self.textures.entries.items, 0..) |entry, i| {
+            self.deinitTexture(.{ .index = @intCast(i), .generation = entry.generation }, context);
+        }
+        for (self.materials.entries.items, 0..) |entry, i| {
+            self.deinitMaterial(.{ .index = @intCast(i), .generation = entry.generation }, context);
+        }
+        for (self.skinned_materials.entries.items, 0..) |entry, i| {
+            self.deinitSkinnedMaterial(.{ .index = @intCast(i), .generation = entry.generation }, context);
+        }
+        for (self.lights.entries.items, 0..) |entry, i| {
+            self.deinitLight(.{ .index = @intCast(i), .generation = entry.generation });
+        }
         self.meshes.deinit();
         self.skeletal_meshes.deinit();
         self.materials.deinit();
@@ -188,10 +200,6 @@ pub const ResourceManager = struct {
     // Light methods
     pub fn createLight(self: *ResourceManager) Handle {
         const handle = self.lights.malloc();
-        if (self.getLight(handle)) |light| {
-            light.color = .{ 0.0, 0.5, 1.0, 1.0 };
-            light.intensity = 1.0;
-        }
         return handle;
     }
 
@@ -200,12 +208,12 @@ pub const ResourceManager = struct {
     }
 
     // Node methods
-    pub fn createNode(self: *ResourceManager, node_type: NodeType) Handle {
+    pub fn initNode(self: *ResourceManager) Handle {
         const handle = self.nodes.malloc();
         if (self.getNode(handle)) |node| {
             node.init(self.allocator);
-            node.type = node_type;
             node.parent = handle;
+            node.data = .none;
         }
         return handle;
     }
@@ -215,99 +223,81 @@ pub const ResourceManager = struct {
     }
 
     pub fn createMeshNode(self: *ResourceManager, mesh: Handle) Handle {
-        const handle = self.createNode(NodeType.static_mesh);
+        const handle = self.initNode();
         if (self.getNode(handle)) |node| {
-            node.mesh = mesh;
+            node.data = .{ .static_mesh = mesh };
         }
         return handle;
     }
 
     pub fn createSkeletalMeshNode(self: *ResourceManager, mesh: Handle) Handle {
-        const handle = self.createNode(NodeType.skeletal_mesh);
+        const handle = self.initNode();
         if (self.getNode(handle)) |node| {
-            node.skeletal_mesh = mesh;
+            node.data = .{ .skeletal_mesh = mesh };
         }
         return handle;
     }
 
     pub fn createLightNode(self: *ResourceManager, light: Handle) Handle {
-        const handle = self.createNode(NodeType.light);
+        const handle = self.initNode();
         if (self.getNode(handle)) |node| {
-            node.light = light;
+            node.data = .{ .light = light };
         }
         return handle;
     }
 
-    pub fn destroyNode(self: *ResourceManager, handle: Handle) void {
+    pub fn deinitNodeCascade(self: *ResourceManager, handle: Handle) void {
         if (self.getNode(handle)) |node| {
-            self.unparentNode(handle);
+            for (node.children.items) |child| {
+                self.deinitNodeCascade(child);
+            }
             node.deinit();
         }
         self.nodes.free(handle);
     }
 
-    pub fn destroyMesh(self: *ResourceManager, handle: Handle, context: *VulkanContext) void {
+    pub fn deinitNode(self: *ResourceManager, handle: Handle) void {
+        self.unparentNode(handle);
+        self.deinitNodeCascade(handle);
+    }
+
+    pub fn deinitMesh(self: *ResourceManager, handle: Handle, context: *VulkanContext) void {
         if (self.getMesh(handle)) |mesh| {
-            mesh.destroy(context);
+            mesh.deinit(context);
         }
         self.meshes.free(handle);
     }
 
-    pub fn destroySkeletalMesh(self: *ResourceManager, handle: Handle, context: *VulkanContext) void {
+    pub fn deinitSkeletalMesh(self: *ResourceManager, handle: Handle, context: *VulkanContext) void {
         if (self.getSkeletalMesh(handle)) |mesh| {
-            mesh.destroy(context);
+            mesh.deinit(context);
         }
         self.skeletal_meshes.free(handle);
     }
 
-    pub fn destroyTexture(self: *ResourceManager, handle: Handle, context: *VulkanContext) void {
+    pub fn deinitTexture(self: *ResourceManager, handle: Handle, context: *VulkanContext) void {
         if (self.getTexture(handle)) |texture| {
-            texture.destroy(context);
+            texture.deinit(context);
         }
         self.textures.free(handle);
     }
 
-    pub fn destroyMaterial(self: *ResourceManager, handle: Handle, context: *VulkanContext) void {
+    pub fn deinitMaterial(self: *ResourceManager, handle: Handle, context: *VulkanContext) void {
         if (self.getMaterial(handle)) |material| {
-            material.destroy(context);
+            material.deinit(context);
         }
         self.materials.free(handle);
     }
 
-    pub fn destroySkinnedMaterial(self: *ResourceManager, handle: Handle, context: *VulkanContext) void {
+    pub fn deinitSkinnedMaterial(self: *ResourceManager, handle: Handle, context: *VulkanContext) void {
         if (self.getSkinnedMaterial(handle)) |material| {
-            material.destroy(context);
+            material.deinit(context);
         }
         self.skinned_materials.free(handle);
     }
 
-    pub fn destroyLight(self: *ResourceManager, handle: Handle) void {
+    pub fn deinitLight(self: *ResourceManager, handle: Handle) void {
         self.lights.free(handle);
-    }
-
-    pub fn destroy(self: *ResourceManager, context: *VulkanContext) void {
-        for (self.nodes.entries.items, 0..) |entry, i| {
-            self.destroyNode(.{ .index = @intCast(i), .generation = entry.generation });
-        }
-        for (self.meshes.entries.items, 0..) |entry, i| {
-            self.destroyMesh(.{ .index = @intCast(i), .generation = entry.generation }, context);
-        }
-        for (self.skeletal_meshes.entries.items, 0..) |entry, i| {
-            self.destroySkeletalMesh(.{ .index = @intCast(i), .generation = entry.generation }, context);
-        }
-        for (self.textures.entries.items, 0..) |entry, i| {
-            self.destroyTexture(.{ .index = @intCast(i), .generation = entry.generation }, context);
-        }
-        for (self.materials.entries.items, 0..) |entry, i| {
-            self.destroyMaterial(.{ .index = @intCast(i), .generation = entry.generation }, context);
-        }
-        for (self.skinned_materials.entries.items, 0..) |entry, i| {
-            self.destroySkinnedMaterial(.{ .index = @intCast(i), .generation = entry.generation }, context);
-        }
-        for (self.lights.entries.items, 0..) |entry, i| {
-            self.destroyLight(.{ .index = @intCast(i), .generation = entry.generation });
-        }
-        self.deinit();
     }
 
     pub fn unparentNode(self: *ResourceManager, node: Handle) void {
@@ -328,10 +318,10 @@ pub const ResourceManager = struct {
     }
 
     pub fn parentNode(self: *ResourceManager, parent: Handle, child: Handle) void {
+        std.debug.print("Parenting node {} to {}\n", .{ child, parent });
         self.unparentNode(child);
         const parent_node = self.getNode(parent) orelse return;
         const child_node = self.getNode(child) orelse return;
-        std.debug.print("Parenting node {x} type {any} to {x} type {any}\n", .{ &child_node, child_node.type, &parent_node, parent_node.type });
         child_node.parent = parent;
         parent_node.children.append(child) catch |err| {
             std.debug.print("Failed to append child to parent: {any}\n", .{err});

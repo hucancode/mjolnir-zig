@@ -21,12 +21,12 @@ pub const Frame = struct {
     uniform: DataBuffer,
     descriptor_set: vk.DescriptorSet,
 
-    pub fn destroy(self: *Frame, context: *VulkanContext, command_pool: vk.CommandPool) void {
+    pub fn deinit(self: *Frame, context: *VulkanContext, command_pool: vk.CommandPool) void {
         context.vkd.destroySemaphore(self.image_available_semaphore, null);
         context.vkd.destroySemaphore(self.render_finished_semaphore, null);
         context.vkd.destroyFence(self.fence, null);
         context.vkd.freeCommandBuffers(command_pool, 1, @ptrCast(&self.command_buffer));
-        self.uniform.destroy(context);
+        self.uniform.deinit(context);
     }
 };
 
@@ -219,8 +219,10 @@ pub const Renderer = struct {
             .{ .top_of_pipe_bit = true },
             .{ .color_attachment_output_bit = true },
             .{},
-            0, undefined,
-            0, undefined,
+            0,
+            undefined,
+            0,
+            undefined,
             1,
             @ptrCast(&barrier),
         );
@@ -318,9 +320,12 @@ pub const Renderer = struct {
             .{ .color_attachment_output_bit = true },
             .{ .bottom_of_pipe_bit = true },
             .{},
-            0, undefined,
-            0, undefined,
-            1, @ptrCast(&barrier),
+            0,
+            undefined,
+            0,
+            undefined,
+            1,
+            @ptrCast(&barrier),
         );
 
         // End command buffer
@@ -359,7 +364,8 @@ pub const Renderer = struct {
         // Look for preferred format
         for (formats) |format| {
             if (format.format == .b8g8r8a8_srgb and
-                format.color_space == .srgb_nonlinear_khr) {
+                format.color_space == .srgb_nonlinear_khr)
+            {
                 self.format = format;
                 return;
             }
@@ -382,30 +388,24 @@ pub const Renderer = struct {
         };
 
         // Clamp to min/max allowed sizes
-        self.extent.width = @max(
-            capabilities.min_image_extent.width,
-            @min(capabilities.max_image_extent.width, self.extent.width)
-        );
-        self.extent.height = @max(
-            capabilities.min_image_extent.height,
-            @min(capabilities.max_image_extent.height, self.extent.height)
-        );
+        self.extent.width = @max(capabilities.min_image_extent.width, @min(capabilities.max_image_extent.width, self.extent.width));
+        self.extent.height = @max(capabilities.min_image_extent.height, @min(capabilities.max_image_extent.height, self.extent.height));
     }
 
     pub fn destroySwapchain(self: *Renderer, context: *VulkanContext) void {
         for (self.views) |view| {
             context.vkd.destroyImageView(view, null);
         }
-        self.depth_buffer.destroy(context);
+        self.depth_buffer.deinit(context);
         context.vkd.destroySwapchainKHR(self.swapchain, null);
         self.allocator.free(self.views);
         self.allocator.free(self.images);
     }
 
-    pub fn destroy(self: *Renderer, context: *VulkanContext) void {
+    pub fn deinit(self: *Renderer, context: *VulkanContext) void {
         self.destroySwapchain(context);
         for (&self.frames) |*frame| {
-            frame.destroy(context, context.command_pool);
+            frame.deinit(context, context.command_pool);
         }
     }
 };

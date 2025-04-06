@@ -14,7 +14,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     var e: mj.Engine = undefined;
     try e.init(allocator, WIDTH, HEIGHT, TITLE);
-    defer e.destroy() catch unreachable;
+    defer e.deinit() catch unreachable;
     const texture = try e.createTexture(@embedFile("assets/statue-1275469_1280.jpg"));
     const texture_ptr = e.resource.getTexture(texture).?;
     const material = try e.createMaterial();
@@ -58,7 +58,7 @@ pub fn main() !void {
             // animate tail by setting rotation
             for (nodes) |cube| {
                 const node = e.resource.nodes.get(cube) orelse continue;
-                node.transform.rotation = zm.quatFromNormAxisAngle(.{0.0, 1.0, 0.0, 0.0}, std.math.pi * e.getTime() * 0.5);
+                node.transform.rotation = zm.quatFromNormAxisAngle(.{ 0.0, 1.0, 0.0, 0.0 }, std.math.pi * e.getTime() * 0.5);
             }
         }
         e.render();

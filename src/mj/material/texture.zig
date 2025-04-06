@@ -29,8 +29,8 @@ pub const Texture = struct {
     }
 
     /// Free resources
-    pub fn destroy(self: *Texture, context: *VulkanContext) void {
-        self.buffer.destroy(context);
+    pub fn deinit(self: *Texture, context: *VulkanContext) void {
+        self.buffer.deinit(context);
         context.vkd.destroySampler(self.sampler, null);
         self.image.deinit();
     }

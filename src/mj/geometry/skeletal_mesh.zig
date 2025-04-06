@@ -108,17 +108,17 @@ pub const SkeletalMesh = struct {
         };
     }
 
-    pub fn destroy(self: *SkeletalMesh, context: *VulkanContext) void {
-        self.vertex_buffer.destroy(context);
-        self.index_buffer.destroy(context);
+    pub fn deinit(self: *SkeletalMesh, context: *VulkanContext) void {
+        self.vertex_buffer.deinit(context);
+        self.index_buffer.deinit(context);
 
         if (self.bones.len > 0) {
-            self.bone_buffer.destroy(context);
+            self.bone_buffer.deinit(context);
         }
 
         var animation_iter = self.animations.iterator();
         while (animation_iter.next()) |entry| {
-            entry.value_ptr.destroy(self.allocator);
+            entry.value_ptr.deinit(self.allocator);
         }
         self.animations.deinit();
 
@@ -141,7 +141,7 @@ pub fn buildSegmentedCube(
     defer engine.allocator.free(bones);
 
     for (bones, 0..) |*bone, i| {
-        bone.* = engine.resource.createNode(NodeType.bone);
+        bone.* = engine.resource.initNode(NodeType.bone);
         if (engine.resource.getNode(bone.*)) |node| {
             node.transform.position = .{
                 .x = 0.0,

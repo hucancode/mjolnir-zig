@@ -8,7 +8,7 @@ pub const DataBuffer = struct {
     mapped: ?*anyopaque,
     size: usize,
 
-    pub fn destroy(self: *DataBuffer, context: *VulkanContext) void {
+    pub fn deinit(self: *DataBuffer, context: *VulkanContext) void {
         if (self.mapped != null) {
             context.vkd.unmapMemory(self.memory);
         }
@@ -25,19 +25,14 @@ pub const ImageBuffer = struct {
     format: vk.Format,
     view: vk.ImageView,
 
-    pub fn destroy(self: *ImageBuffer, context: *VulkanContext) void {
+    pub fn deinit(self: *ImageBuffer, context: *VulkanContext) void {
         context.vkd.destroyImageView(self.view, null);
         context.vkd.destroyImage(self.image, null);
         context.vkd.freeMemory(self.memory, null);
     }
 };
 
-pub fn createImageView(
-    context: *VulkanContext,
-    image: vk.Image,
-    format: vk.Format,
-    aspect_mask: vk.ImageAspectFlags
-) !vk.ImageView {
+pub fn createImageView(context: *VulkanContext, image: vk.Image, format: vk.Format, aspect_mask: vk.ImageAspectFlags) !vk.ImageView {
     const create_info = vk.ImageViewCreateInfo{
         .image = image,
         .view_type = .@"2d",

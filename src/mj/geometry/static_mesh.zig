@@ -75,9 +75,9 @@ pub const StaticMesh = struct {
         };
     }
 
-    pub fn destroy(self: *StaticMesh, context: *VulkanContext) void {
-        self.vertex_buffer.destroy(context);
-        self.index_buffer.destroy(context);
+    pub fn deinit(self: *StaticMesh, context: *VulkanContext) void {
+        self.vertex_buffer.deinit(context);
+        self.index_buffer.deinit(context);
         self.allocator.free(self.vertices);
         self.allocator.free(self.indices);
     }

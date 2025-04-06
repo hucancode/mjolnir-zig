@@ -147,7 +147,7 @@ pub const Material = struct {
         context.vkd.updateDescriptorSets(writes.len, &writes, 0, undefined);
     }
 
-    pub fn destroy(self: *Material, context: *VulkanContext) void {
+    pub fn deinit(self: *Material, context: *VulkanContext) void {
         context.vkd.destroyPipeline(self.pipeline, null);
         context.vkd.destroyPipelineLayout(self.pipeline_layout, null);
         context.vkd.destroyDescriptorSetLayout(self.descriptor_set_layout, null);

@@ -186,7 +186,7 @@ pub const SkinnedMaterial = struct {
         context.vkd.updateDescriptorSets(1, @ptrCast(&write), 0, undefined);
     }
 
-    pub fn destroy(self: *SkinnedMaterial, context: *VulkanContext) void {
+    pub fn deinit(self: *SkinnedMaterial, context: *VulkanContext) void {
         context.vkd.destroyPipeline(self.pipeline, null);
         context.vkd.destroyPipelineLayout(self.pipeline_layout, null);
         context.vkd.destroyDescriptorSetLayout(self.descriptor_set_layout, null);

@@ -473,7 +473,7 @@ pub const VulkanContext = struct {
     pub fn createLocalBuffer(self: *VulkanContext, data: []const u8, usage: vk.BufferUsageFlags) !DataBuffer {
         std.debug.print("Creating local buffer size {d}\n", .{data.len});
         var staging = try self.createHostVisibleBuffer(data, .{ .transfer_src_bit = true });
-        defer staging.destroy(self);
+        defer staging.deinit(self);
         var result = try self.mallocLocalBuffer(
             data.len,
             usage.merge(.{ .transfer_dst_bit = true }),
@@ -490,7 +490,7 @@ pub const VulkanContext = struct {
 
     pub fn createImageBuffer(self: *VulkanContext, data: []const u8, format: vk.Format, width: u32, height: u32) !ImageBuffer {
         var staging = try self.createHostVisibleBuffer(data, .{ .transfer_src_bit = true });
-        defer staging.destroy(self);
+        defer staging.deinit(self);
         var result = try self.mallocImageBuffer(format, width, height);
         try self.copyImage(&result, &staging);
         const color_aspect = vk.ImageAspectFlags{ .color_bit = true };

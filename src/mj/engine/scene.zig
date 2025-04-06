@@ -61,7 +61,7 @@ pub const Scene = struct {
         self.descriptor_set_layout = try context.vkd.createDescriptorSetLayout(&layout_info, null);
     }
 
-    pub fn destroy(self: *Scene, context: *VulkanContext) void {
+    pub fn deinit(self: *Scene, context: *VulkanContext) void {
         context.vkd.destroyDescriptorSetLayout(self.descriptor_set_layout, null);
     }
 

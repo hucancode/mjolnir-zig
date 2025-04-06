@@ -42,7 +42,7 @@ pub fn sample(comptime T: type, frames: []const Keyframe(T), t: f32, merge: Merg
     return merge(a.value, b.value, alpha);
 }
 
-fn compareKeyframes(comptime T: type) fn(f32, Keyframe(T)) std.math.Order {
+fn compareKeyframes(comptime T: type) fn (f32, Keyframe(T)) std.math.Order {
     const S = struct {
         fn predicate(target: f32, item: Keyframe(T)) std.math.Order {
             return std.math.order(target, item.time);
@@ -84,7 +84,7 @@ pub const Animation = struct {
     rotations: []RotationKeyframe,
     scales: []ScaleKeyframe,
 
-    pub fn destroy(self: *Animation, allocator: Allocator) void {
+    pub fn deinit(self: *Animation, allocator: Allocator) void {
         allocator.free(self.positions);
         allocator.free(self.rotations);
         allocator.free(self.scales);
@@ -117,9 +117,9 @@ pub const AnimationTrack = struct {
     animations: []Animation,
     duration: f32,
 
-    pub fn destroy(self: *AnimationTrack, allocator: Allocator) void {
+    pub fn deinit(self: *AnimationTrack, allocator: Allocator) void {
         for (self.animations) |*animation| {
-            animation.destroy(allocator);
+            animation.deinit(allocator);
         }
         allocator.free(self.animations);
     }

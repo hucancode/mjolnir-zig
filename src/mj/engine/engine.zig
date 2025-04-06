@@ -77,7 +77,7 @@ pub const Engine = struct {
 
     fn buildScene(self: *Engine) !void {
         try self.scene.init(&self.context);
-        self.scene.root = self.resource.createNode(NodeType.root);
+        self.scene.root = self.resource.initNode();
     }
 
     fn buildRenderer(self: *Engine) !void {
@@ -149,10 +149,13 @@ pub const Engine = struct {
             const node = self.resource.getNode(handle) orelse continue;
             const local_matrix = node.transform.toMatrix();
             const world_matrix = zm.mul(local_matrix, transform_stack.pop() orelse zm.identity());
-            switch (node.type) {
-                .group => {},
-                .skeletal_mesh => {
-                    if (self.resource.getSkeletalMesh(node.skeletal_mesh)) |mesh| {
+            switch (node.data) {
+                .light => |*light| {
+                    //std.debug.print("light {}", {.light});
+                    _ = light;
+                },
+                .skeletal_mesh => |*skeletal_mesh| {
+                    if (self.resource.getSkeletalMesh(skeletal_mesh.handle)) |mesh| {
                         if (self.resource.getSkinnedMaterial(mesh.material)) |material| {
                             if (mesh.bone_buffer.mapped) |mapped| {
                                 const bones: [*]zm.Mat = @ptrCast(@alignCast(mapped));
@@ -179,9 +182,8 @@ pub const Engine = struct {
                         }
                     }
                 },
-
-                .static_mesh => {
-                    if (self.resource.getMesh(node.mesh)) |mesh| {
+                .static_mesh => |*mesh_handle| {
+                    if (self.resource.getMesh(mesh_handle.*)) |mesh| {
                         if (self.resource.getMaterial(mesh.material)) |material| {
                             self.context.vkd.cmdBindPipeline(command_buffer, .graphics, material.pipeline);
                             const descriptor_sets = [_]vk.DescriptorSet{
@@ -198,14 +200,11 @@ pub const Engine = struct {
                     }
                 },
                 else => {
-                    if (self.resource.getNode(self.scene.root)) |root| {
-                        std.debug.print("this.resource.nodes[this.scene.root].children = {d}\n", .{root.children.items.len});
-                    }
-                    std.debug.print("Unknown node type {any}, handle = {d} - {d}\n", .{ node.type, handle.index, handle.generation });
+                    std.debug.print("Unknown node type {any}, handle = {d} - {d}\n", .{ node.data, handle.index, handle.generation });
                 },
             }
             for (node.children.items) |child| {
-                if (child.index == 0) {
+                if (child.index == self.scene.root.index) {
                     std.debug.print("A node can't have root node as a child {d} {d}\n", .{ handle.index, handle.generation });
                     continue;
                 }
@@ -266,38 +265,42 @@ pub const Engine = struct {
         for (self.resource.nodes.entries.items) |*entry| {
             if (!entry.active) continue;
             const node = &entry.item;
-            if (node.type != NodeType.skeletal_mesh) continue;
-            if (node.animation.status != AnimationStatus.playing) continue;
-            const anim = &node.animation;
-            anim.*.time += delta_time;
-            const mesh = self.resource.getSkeletalMesh(node.skeletal_mesh) orelse continue;
-            const track = mesh.animations.getPtr(anim.name) orelse continue;
+            switch (node.data) {
+                .skeletal_mesh => |*skeletal_mesh| {
+                    if (skeletal_mesh.animation.status != AnimationStatus.playing) continue;
+                    const anim = &skeletal_mesh.animation;
+                    anim.*.time += delta_time;
+                    const mesh = self.resource.getSkeletalMesh(skeletal_mesh.handle) orelse continue;
+                    const track = mesh.animations.getPtr(anim.name) orelse continue;
 
-            switch (anim.mode) {
-                .loop => {
-                    anim.time = std.math.mod(f32, anim.time, track.duration) catch 0.0;
-                },
-                .once => {
-                    if (anim.time >= track.duration) {
-                        anim.time = track.duration;
-                        anim.status = AnimationStatus.stopped;
+                    switch (anim.mode) {
+                        .loop => {
+                            anim.time = std.math.mod(f32, anim.time, track.duration) catch 0.0;
+                        },
+                        .once => {
+                            if (anim.time >= track.duration) {
+                                anim.time = track.duration;
+                                anim.status = AnimationStatus.stopped;
+                            }
+                        },
+                        .pingpong => {
+                            // Handle playing in reverse (not implemented in original)
+                        },
                     }
+                    track.update(anim.time, &self.resource.nodes, mesh.bones);
                 },
-                .pingpong => {
-                    // Handle playing in reverse (not implemented in original)
-                },
+                else => {},
             }
-            track.update(anim.time, &self.resource.nodes, mesh.bones);
         }
         self.last_update_timestamp = Time.now() catch return true;
         return true;
     }
 
-    pub fn destroy(self: *Engine) !void {
+    pub fn deinit(self: *Engine) !void {
         try self.context.vkd.deviceWaitIdle();
-        self.resource.destroy(&self.context);
-        self.renderer.destroy(&self.context);
-        self.scene.destroy(&self.context);
+        self.resource.deinit(&self.context);
+        self.renderer.deinit(&self.context);
+        self.scene.deinit(&self.context);
         self.context.deinit();
         glfw.destroyWindow(self.window);
         glfw.terminate();
