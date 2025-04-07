@@ -136,8 +136,8 @@ pub fn buildSegmentedCube(
     defer engine.allocator.free(bones);
 
     for (bones, 0..) |*bone, i| {
-        bone.* = engine.resource.initNode(NodeType.bone);
-        if (engine.resource.getNode(bone.*)) |node| {
+        bone.* = engine.initNode(NodeType.bone);
+        if (engine.nodes.get(bone.*)) |node| {
             node.transform.position = .{
                 .x = 0.0,
                 .y = @as(f32, @floatFromInt(i)) * 2.0 / (@as(f32, @floatFromInt(actual_segments)) - 1.0),

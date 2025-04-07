@@ -10,7 +10,6 @@ const ArrayList = std.ArrayList;
 
 const VulkanContext = @import("context.zig").VulkanContext;
 const Renderer = @import("renderer.zig").Renderer;
-const ResourceManager = @import("resource.zig").ResourceManager;
 const Scene = @import("scene.zig").Scene;
 const Handle = @import("resource.zig").Handle;
 const Node = @import("../scene/node.zig").Node;
@@ -22,6 +21,12 @@ const SkeletalMesh = @import("../geometry/skeletal_mesh.zig").SkeletalMesh;
 const Texture = @import("../material/texture.zig").Texture;
 const QueueFamilyIndices = @import("context.zig").QueueFamilyIndices;
 const SwapchainSupport = @import("context.zig").SwapchainSupport;
+const StaticMesh = @import("../geometry/static_mesh.zig").StaticMesh;
+const Material = @import("../material/pbr.zig").Material;
+const SkinnedMaterial = @import("../material/skinned_pbr.zig").SkinnedMaterial;
+const Light = @import("../scene/light.zig").Light;
+const ResourcePool = @import("resource.zig").ResourcePool;
+
 const buildMaterial = @import("../material/pbr.zig").buildMaterial;
 const buildSkinnedMaterial = @import("../material/skinned_pbr.zig").buildSkinnedMaterial;
 const buildCube = @import("../geometry/static_mesh.zig").buildCube;
@@ -37,11 +42,17 @@ pub const Engine = struct {
     window: *glfw.Window,
     context: VulkanContext,
     renderer: Renderer,
-    resource: ResourceManager,
     scene: Scene,
     last_frame_timestamp: Time,
     last_update_timestamp: Time,
     start_timestamp: Time,
+    meshes: ResourcePool(StaticMesh),
+    skeletal_meshes: ResourcePool(SkeletalMesh),
+    materials: ResourcePool(Material),
+    skinned_materials: ResourcePool(SkinnedMaterial),
+    textures: ResourcePool(Texture),
+    lights: ResourcePool(Light),
+    nodes: ResourcePool(Node),
     allocator: Allocator,
 
     pub fn init(self: *Engine, allocator: Allocator, width: u32, height: u32, title: [:0]const u8) !void {
@@ -63,7 +74,13 @@ pub const Engine = struct {
         self.last_frame_timestamp = try Time.now();
         self.last_update_timestamp = try Time.now();
         try self.context.init(self.window, allocator);
-        self.resource = ResourceManager.init(allocator);
+        self.meshes = ResourcePool(StaticMesh).init(allocator);
+        self.skeletal_meshes = ResourcePool(SkeletalMesh).init(allocator);
+        self.materials = ResourcePool(Material).init(allocator);
+        self.skinned_materials = ResourcePool(SkinnedMaterial).init(allocator);
+        self.textures = ResourcePool(Texture).init(allocator);
+        self.lights = ResourcePool(Light).init(allocator);
+        self.nodes = ResourcePool(Node).init(allocator);
         try self.buildScene();
         try self.buildRenderer();
         if (self.renderer.extent.width > 0 and self.renderer.extent.height > 0) {
@@ -77,7 +94,7 @@ pub const Engine = struct {
 
     fn buildScene(self: *Engine) !void {
         try self.scene.init(&self.context);
-        self.scene.root = self.resource.initNode();
+        self.scene.root = self.initNode();
     }
 
     fn buildRenderer(self: *Engine) !void {
@@ -121,7 +138,6 @@ pub const Engine = struct {
     pub fn pushSceneUniform(self: *Engine) void {
         const now = Time.now() catch return;
         const elapsed_seconds = @as(f64, @floatFromInt(now.since(self.start_timestamp))) / 1000_000_000.0;
-        std.debug.print("elapsed seconds = {}\n", .{elapsed_seconds});
         const data = SceneUniform {
             .view = self.scene.viewMatrix(),
             .projection = self.scene.projectionMatrix(),
@@ -138,7 +154,7 @@ pub const Engine = struct {
         defer node_stack.deinit();
         var transform_stack = ArrayList(zm.Mat).init(self.allocator);
         defer transform_stack.deinit();
-        if (self.resource.getNode(self.scene.root)) |root_node| {
+        if (self.nodes.get(self.scene.root)) |root_node| {
             for (root_node.children.items) |child| {
                 try node_stack.append(child);
                 try transform_stack.append(zm.identity());
@@ -147,7 +163,7 @@ pub const Engine = struct {
         // Process nodes depth-first
         while (node_stack.items.len > 0) {
             const handle = node_stack.pop() orelse break;
-            const node = self.resource.getNode(handle) orelse continue;
+            const node = self.nodes.get(handle) orelse continue;
             const local_matrix = node.transform.toMatrix();
             const world_matrix = zm.mul(local_matrix, transform_stack.pop() orelse zm.identity());
             switch (node.data) {
@@ -156,12 +172,12 @@ pub const Engine = struct {
                     _ = light;
                 },
                 .skeletal_mesh => |*skeletal_mesh| {
-                    if (self.resource.getSkeletalMesh(skeletal_mesh.handle)) |mesh| {
-                        if (self.resource.getSkinnedMaterial(mesh.material)) |material| {
+                    if (self.skeletal_meshes.get(skeletal_mesh.handle)) |mesh| {
+                        if (self.skinned_materials.get(mesh.material)) |material| {
                             if (mesh.bone_buffer.mapped) |mapped| {
                                 const bones: [*]zm.Mat = @ptrCast(@alignCast(mapped));
                                 for (mesh.bones, 0..) |bone_handle, i| {
-                                    if (self.resource.getNode(bone_handle)) |bone_node| {
+                                    if (self.nodes.get(bone_handle)) |bone_node| {
                                         bones[i] = bone_node.transform.toMatrix();
                                     }
                                 }
@@ -184,8 +200,8 @@ pub const Engine = struct {
                     }
                 },
                 .static_mesh => |*mesh_handle| {
-                    if (self.resource.getMesh(mesh_handle.*)) |mesh| {
-                        if (self.resource.getMaterial(mesh.material)) |material| {
+                    if (self.meshes.get(mesh_handle.*)) |mesh| {
+                        if (self.materials.get(mesh.material)) |material| {
                             self.context.vkd.cmdBindPipeline(command_buffer, .graphics, material.pipeline);
                             const descriptor_sets = [_]vk.DescriptorSet{
                                 self.renderer.getDescriptorSet(),
@@ -261,7 +277,7 @@ pub const Engine = struct {
         if (delta_time < UPDATE_FRAME_TIME) {
             return false;
         }
-        for (self.resource.nodes.entries.items) |*entry| {
+        for (self.nodes.entries.items) |*entry| {
             if (!entry.active) continue;
             const node = &entry.item;
             switch (node.data) {
@@ -269,7 +285,7 @@ pub const Engine = struct {
                     if (skeletal_mesh.animation.status != AnimationStatus.playing) continue;
                     const anim = &skeletal_mesh.animation;
                     anim.*.time += delta_time;
-                    const mesh = self.resource.getSkeletalMesh(skeletal_mesh.handle) orelse continue;
+                    const mesh = self.skeletal_meshes.get(skeletal_mesh.handle) orelse continue;
                     const track = mesh.animations.getPtr(anim.name) orelse continue;
 
                     switch (anim.mode) {
@@ -286,7 +302,7 @@ pub const Engine = struct {
                             // Handle playing in reverse (not implemented in original)
                         },
                     }
-                    track.update(anim.time, &self.resource.nodes, mesh.bones);
+                    track.update(anim.time, &self.nodes, mesh.bones);
                 },
                 else => {},
             }
@@ -297,20 +313,48 @@ pub const Engine = struct {
 
     pub fn deinit(self: *Engine) !void {
         try self.context.vkd.deviceWaitIdle();
-        self.resource.deinit(&self.context);
+        for (self.nodes.entries.items) |*entry| {
+            if (entry.active) {
+                entry.item.deinit();
+            }
+        }
+        for (self.meshes.entries.items) |*entry| {
+            if (entry.active) {
+                entry.item.deinit(&self.context);
+            }
+        }
+        for (self.skeletal_meshes.entries.items) |*entry| {
+            if (entry.active) {
+                entry.item.deinit(&self.context);
+            }
+        }
+        for (self.textures.entries.items) |*entry| {
+            if (entry.active) {
+                entry.item.deinit(&self.context);
+            }
+        }
+        for (self.materials.entries.items) |*entry| {
+            if (entry.active) {
+                entry.item.deinit(&self.context);
+            }
+        }
+        for (self.skinned_materials.entries.items) |*entry| {
+            if (entry.active) {
+                entry.item.deinit(&self.context);
+            }
+        }
+        self.meshes.deinit();
+        self.skeletal_meshes.deinit();
+        self.materials.deinit();
+        self.skinned_materials.deinit();
+        self.textures.deinit();
+        self.lights.deinit();
+        self.nodes.deinit();
         self.renderer.deinit(&self.context);
         self.scene.deinit(&self.context);
         self.context.deinit();
         glfw.destroyWindow(self.window);
         glfw.terminate();
-    }
-
-    pub fn getNode(self: *Engine, handle: Handle) ?*Node {
-        return self.resource.getNode(handle);
-    }
-
-    pub fn parentNode(self: *Engine, parent: Handle, child: Handle) void {
-        self.resource.parentNode(parent, child);
     }
 
     pub fn addToRoot(self: *Engine, node: Handle) void {
@@ -345,8 +389,8 @@ pub const Engine = struct {
         bones: []const Handle,
         material: Handle,
     ) !Handle {
-        const handle = self.resource.mallocSkeletalMesh();
-        const mesh = self.resource.getSkeletalMesh(handle) orelse return error.ResourceAllocationFailed;
+        const handle = self.skeletal_meshes.malloc();
+        const mesh = try self.skeletal_meshes.get(handle);
         try self.buildSkeletalMesh(mesh, vertices, indices, bones, material);
         return handle;
     }
@@ -354,15 +398,9 @@ pub const Engine = struct {
     /// Create a new texture from raw data
     pub fn createTexture(self: *Engine, data: []const u8) !Handle {
         // Allocate texture
-        const texture_handle = self.resource.mallocTexture();
-        const texture = self.resource.getTexture(texture_handle) orelse return error.ResourceAllocationFailed;
+        const handle = self.textures.malloc();
+        const texture = self.textures.get(handle) orelse return error.ResourceAllocationFailed;
         try texture.initFromData(data);
-        try self.buildTexture(texture);
-        std.debug.print("Texture created {d}\n", .{texture_handle.index});
-        return texture_handle;
-    }
-
-    pub fn buildTexture(self: *Engine, texture: *Texture) !void {
         texture.buffer = try self.context.createImageBuffer(
             texture.image.data,
             .r8g8b8a8_srgb,
@@ -386,39 +424,158 @@ pub const Engine = struct {
             .min_lod = 0.0,
             .max_lod = 0.0,
         };
-
         texture.sampler = try self.context.vkd.createSampler(&sampler_info, null);
+        std.debug.print("Texture created {d}\n", .{handle.index});
+        return handle;
     }
+
     /// Create a new PBR material
     pub fn createMaterial(self: *Engine) !Handle {
-        const material_handle = self.resource.mallocMaterial();
-        const mat = self.resource.getMaterial(material_handle) orelse return error.ResourceAllocationFailed;
+        const handle = self.materials.malloc();
+        const mat = self.materials.get(handle) orelse return error.ResourceAllocationFailed;
         const vertex_code align(@alignOf(u32)) = @embedFile("shaders/pbr.vert.spv").*;
         const fragment_code align(@alignOf(u32)) = @embedFile("shaders/pbr.frag.spv").*;
         try mat.initDescriptorSet(&self.context);
         std.debug.print("Material descriptor set initialized\n", .{});
         try buildMaterial(mat, self, &vertex_code, &fragment_code);
         std.debug.print("Material created\n", .{});
-        return material_handle;
+        return handle;
     }
     /// Create a new skinned material
     pub fn createSkinnedMaterial(self: *Engine, max_bones: u32) !Handle {
-        const material_handle = self.resource.createSkinnedMaterial();
-        const mat = self.resource.getSkinnedMaterial(material_handle) orelse {
-            return error.ResourceAllocationFailed;
-        };
+        const handle = self.skinned_materials.malloc();
+        const mat = self.skinned_materials.get(handle) orelse return error.ResourceAllocationFailed;
         const vertex_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr.vert.spv").*;
         const fragment_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr.frag.spv").*;
         mat.max_bones = max_bones;
-        try mat.initDescriptorSet(self.context);
+        try mat.initDescriptorSet(&self.context);
         try buildSkinnedMaterial(mat, self, &vertex_code, &fragment_code);
-        return material_handle;
+        return handle;
     }
     pub fn createCube(self: *Engine, material: Handle) !Handle {
-        const ret = self.resource.mallocMesh();
-        const mesh_ptr = self.resource.getMesh(ret).?;
+        const ret = self.meshes.malloc();
+        const mesh_ptr = self.meshes.get(ret).?;
         try buildCube(&self.context, mesh_ptr, material, .{ 0.0, 0.0, 0.0, 0.0 });
         return ret;
+    }
+
+    // Node methods
+    pub fn initNode(self: *Engine) Handle {
+        std.debug.print("init node", .{});
+        const handle = self.nodes.malloc();
+        std.debug.print("init node, handle = {}", .{handle});
+        if (self.nodes.get(handle)) |node| {
+            node.init(self.allocator);
+            node.parent = handle;
+            node.data = .none;
+        }
+        return handle;
+    }
+
+    pub fn createMeshNode(self: *Engine, mesh: Handle) Handle {
+        const handle = self.initNode();
+        if (self.nodes.get(handle)) |node| {
+            node.data = .{ .static_mesh = mesh };
+        }
+        return handle;
+    }
+
+    pub fn createSkeletalMeshNode(self: *Engine, mesh: Handle) Handle {
+        const handle = self.initNode();
+        if (self.nodes.get(handle)) |node| {
+            node.data = .{ .skeletal_mesh = mesh };
+        }
+        return handle;
+    }
+
+    pub fn createLightNode(self: *Engine, light: Handle) Handle {
+        const handle = self.initNode();
+        if (self.nodes.get(handle)) |node| {
+            node.data = .{ .light = light };
+        }
+        return handle;
+    }
+
+    pub fn deinitNodeCascade(self: *Engine, handle: Handle) void {
+        if (self.nodes.get(handle)) |node| {
+            for (node.children.items) |child| {
+                self.deinitNodeCascade(child);
+            }
+            node.deinit();
+            self.nodes.free(handle);
+        }
+    }
+
+    pub fn deinitNode(self: *Engine, handle: Handle) void {
+        self.unparentNode(handle);
+        self.deinitNodeCascade(handle);
+    }
+
+    pub fn deinitMesh(self: *Engine, handle: Handle) void {
+        if (self.meshes.get(handle)) |mesh| {
+            mesh.deinit(&self.context);
+            self.meshes.free(handle);
+        }
+    }
+
+    pub fn deinitSkeletalMesh(self: *Engine, handle: Handle) void {
+        if (self.skeletal_meshes.get(handle)) |mesh| {
+            mesh.deinit(&self.context);
+            self.skeletal_meshes.free(handle);
+        }
+    }
+
+    pub fn deinitTexture(self: *Engine, handle: Handle) void {
+        if (self.textures.get(handle)) |texture| {
+            texture.deinit(&self.context);
+            self.textures.free(handle);
+        }
+    }
+
+    pub fn deinitMaterial(self: *Engine, handle: Handle) void {
+        if (self.materials.get(handle)) |material| {
+            material.deinit(&self.context);
+            self.materials.free(handle);
+        }
+    }
+
+    pub fn deinitSkinnedMaterial(self: *Engine, handle: Handle) void {
+        if (self.skinned_materials.get(handle)) |material| {
+            material.deinit(&self.context);
+            self.skinned_materials.free(handle);
+        }
+    }
+
+    pub fn deinitLight(self: *Engine, handle: Handle) void {
+        self.lights.free(handle);
+    }
+
+    pub fn unparentNode(self: *Engine, node: Handle) void {
+        const child_node = self.nodes.get(node) orelse return;
+        const parent_handle = child_node.parent;
+        const parent_node = self.nodes.get(parent_handle) orelse return;
+        if (parent_node == child_node) return;
+        for (parent_node.children.items, 0..) |child, i| {
+            if (child.index == node.index and child.generation == node.generation) {
+                if (i < parent_node.children.items.len - 1) {
+                    parent_node.children.items[i] = parent_node.children.items[parent_node.children.items.len - 1];
+                }
+                _ = parent_node.children.pop();
+                break;
+            }
+        }
+        child_node.parent = node;
+    }
+
+    pub fn parentNode(self: *Engine, parent: Handle, child: Handle) void {
+        std.debug.print("Parenting node {} to {}\n", .{ child, parent });
+        self.unparentNode(child);
+        const parent_node = self.nodes.get(parent) orelse return;
+        const child_node = self.nodes.get(child) orelse return;
+        child_node.parent = parent;
+        parent_node.children.append(child) catch |err| {
+            std.debug.print("Failed to append child to parent: {any}\n", .{err});
+        };
     }
 };
 
