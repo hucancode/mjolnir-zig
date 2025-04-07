@@ -12,9 +12,6 @@ pub const Scene = struct {
 
     pub fn init(self: *Scene, context: *VulkanContext) !void {
         self.camera = .{
-            .up = .{ 0.0, -1.0, 0.0, 0.0 },
-            .position = .{ 0.0, 0.0, 0.0, 0.0 },
-            .rotation = .{ 0.0, 0.0, 0.0, 1.0 },
             .projection = .{
                 .perspective = .{
                     .fov = 45.0,
@@ -28,13 +25,13 @@ pub const Scene = struct {
             .binding = 0,
             .descriptor_type = .uniform_buffer,
             .descriptor_count = 1,
-            .stage_flags = .{ .vertex_bit = true },
+            .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
         };
         const proj_binding = vk.DescriptorSetLayoutBinding{
             .binding = 1,
             .descriptor_type = .uniform_buffer,
             .descriptor_count = 1,
-            .stage_flags = .{ .vertex_bit = true },
+            .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
         };
         const time_binding = vk.DescriptorSetLayoutBinding{
             .binding = 2,

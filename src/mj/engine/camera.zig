@@ -2,9 +2,9 @@ const std = @import("std");
 const zm = @import("zmath");
 
 pub const Camera = struct {
-    up: zm.Vec,
-    position: zm.Vec,
-    rotation: zm.Quat,
+    up: zm.Vec = .{0.0, 1.0, 0.0, 0.0},
+    position: zm.Vec = .{0.0, 0.0, 0.0, 0.0},
+    rotation: zm.Quat = .{0.0, 0.0, 0.0, 1.0},
     projection: union(enum) {
         perspective: struct {
             fov: f32,
@@ -28,7 +28,7 @@ pub const Camera = struct {
     }
 
     pub fn lookAt(self: *Camera, target: zm.Vec) void {
-        const lookat_matrix = zm.lookAtLh(self.position, target, self.up);
+        const lookat_matrix = zm.lookAtLh(self.position, target, -self.up);
         self.rotation = zm.quatFromMat(lookat_matrix);
     }
 

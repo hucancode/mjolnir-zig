@@ -12,10 +12,12 @@ layout(set = 1, binding = 2) uniform sampler2D roughnessSampler;
 layout(location = 0) in vec3 normal;
 layout(location = 1) in vec4 color;
 layout(location = 2) in vec2 uv;
+layout(location = 3) in vec3 position;
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    vec3 lightDir = normalize(vec3(0.0, -5.0, 5.0));
+    vec3 lightPos = vec3(sin(time*0.23457), cos(time*0.543217), tan(time))*20.0;
+    vec3 lightDir = normalize(lightPos - position);
     float brightness = max(dot(normalize(normal), lightDir), 0.0);
     vec4 albedo = texture(albedoSampler, uv);
     vec4 shadedColor = brightness * brightness * albedo;

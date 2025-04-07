@@ -210,7 +210,7 @@ pub fn buildMaterial(mat: *Material, engine: *Engine, vertex_code: []align(@alig
         .rasterizer_discard_enable = vk.FALSE,
         .polygon_mode = .fill,
         .cull_mode = .{ .back_bit = true },
-        .front_face = .counter_clockwise,
+        .front_face = .clockwise,
         .depth_bias_enable = vk.FALSE,
         .depth_bias_constant_factor = 0,
         .depth_bias_clamp = 0,

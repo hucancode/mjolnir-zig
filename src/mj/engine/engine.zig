@@ -121,7 +121,8 @@ pub const Engine = struct {
     pub fn pushSceneUniform(self: *Engine) void {
         const now = Time.now() catch return;
         const elapsed_seconds = @as(f64, @floatFromInt(now.since(self.start_timestamp))) / 1000_000_000.0;
-        const data = SceneUniform{
+        std.debug.print("elapsed seconds = {}\n", .{elapsed_seconds});
+        const data = SceneUniform {
             .view = self.scene.viewMatrix(),
             .projection = self.scene.projectionMatrix(),
             .time = @floatCast(elapsed_seconds),

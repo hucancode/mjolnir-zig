@@ -18,10 +18,12 @@ layout(push_constant) uniform Constants {
 layout(location = 0) out vec3 outNormal;
 layout(location = 1) out vec4 outColor;
 layout(location = 2) out vec2 outUV;
+layout(location = 3) out vec3 outPosition;
 
 void main() {
     outNormal = (world * vec4(inNormal, 1.0)).xyz;
     outColor = inColor;
     outUV = inUV;
+    outPosition = (world * vec4(inPosition, 1.0)).xyz;
     gl_Position = proj * view * world * vec4(inPosition, 1.0);
 }
