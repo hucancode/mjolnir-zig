@@ -29,7 +29,7 @@ const writeBuffer = @import("context.zig").writeBuffer;
 const RENDER_FPS = 60.0;
 const FRAME_TIME = 1.0 / RENDER_FPS;
 const FRAME_TIME_NANO: u64 = @intFromFloat(FRAME_TIME * 1_000_000_000.0);
-const UPDATE_FPS = 30.0;
+const UPDATE_FPS = 24.0;
 const UPDATE_FRAME_TIME = 1.0 / UPDATE_FPS;
 const UPDATE_FRAME_TIME_NANO: u64 = @intFromFloat(UPDATE_FRAME_TIME * 1_000_000_000.0);
 
@@ -69,7 +69,7 @@ pub const Engine = struct {
         if (self.renderer.extent.width > 0 and self.renderer.extent.height > 0) {
             const w: f32 = @floatFromInt(self.renderer.extent.width);
             const h: f32 = @floatFromInt(self.renderer.extent.height);
-            self.scene.camera.perspective.aspect_ratio = w / h;
+            self.scene.camera.projection.perspective.aspect_ratio = w / h;
         }
         zstbi.init(allocator);
         std.debug.print("Engine initialized\n", .{});
@@ -121,7 +121,8 @@ pub const Engine = struct {
     pub fn pushSceneUniform(self: *Engine) void {
         const now = Time.now() catch return;
         const elapsed_seconds = @as(f64, @floatFromInt(now.since(self.start_timestamp))) / 1000_000_000.0;
-        const data = SceneUniform{
+        std.debug.print("elapsed seconds = {}\n", .{elapsed_seconds});
+        const data = SceneUniform {
             .view = self.scene.viewMatrix(),
             .projection = self.scene.projectionMatrix(),
             .time = @floatCast(elapsed_seconds),
@@ -178,7 +179,7 @@ pub const Engine = struct {
                             const offset: vk.DeviceSize = 0;
                             self.context.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&mesh.vertex_buffer.buffer), @ptrCast(&offset));
                             self.context.vkd.cmdBindIndexBuffer(command_buffer, mesh.index_buffer.buffer, 0, .uint32);
-                            self.context.vkd.cmdDrawIndexed(command_buffer, @intCast(mesh.indices.len), 1, 0, 0, 0);
+                            self.context.vkd.cmdDrawIndexed(command_buffer, mesh.indices_len, 1, 0, 0, 0);
                         }
                     }
                 },
@@ -195,7 +196,7 @@ pub const Engine = struct {
                             const offset: vk.DeviceSize = 0;
                             self.context.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&mesh.vertex_buffer.buffer), @ptrCast(&offset));
                             self.context.vkd.cmdBindIndexBuffer(command_buffer, mesh.index_buffer.buffer, 0, .uint32);
-                            self.context.vkd.cmdDrawIndexed(command_buffer, @intCast(mesh.indices.len), 1, 0, 0, 0);
+                            self.context.vkd.cmdDrawIndexed(command_buffer, mesh.indices_len, 1, 0, 0, 0);
                         }
                     }
                 },

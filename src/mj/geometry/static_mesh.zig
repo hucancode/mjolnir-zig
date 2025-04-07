@@ -58,28 +58,14 @@ pub const VERTEX_ATTR_DESCRIPTION = [_]vk.VertexInputAttributeDescription{
 /// Static mesh structure
 pub const StaticMesh = struct {
     material: Handle,
-    vertices: []const Vertex,
-    indices: []const u32,
+    vertices_len: u32 = 0,
+    indices_len: u32 = 0,
     vertex_buffer: DataBuffer,
     index_buffer: DataBuffer,
-    allocator: Allocator,
-
-    pub fn init(allocator: Allocator) StaticMesh {
-        return .{
-            .material = undefined,
-            .vertices = &[_]Vertex{},
-            .indices = &[_]u32{},
-            .vertex_buffer = undefined,
-            .index_buffer = undefined,
-            .allocator = allocator,
-        };
-    }
 
     pub fn deinit(self: *StaticMesh, context: *VulkanContext) void {
         self.vertex_buffer.deinit(context);
         self.index_buffer.deinit(context);
-        self.allocator.free(self.vertices);
-        self.allocator.free(self.indices);
     }
 };
 
@@ -92,15 +78,11 @@ pub fn buildMesh(
     material: Handle,
 ) !void {
     mesh.material = material;
-    mesh.vertices = vertices;
-    mesh.indices = indices;
-
+    mesh.vertices_len = @intCast(vertices.len);
+    mesh.indices_len = @intCast(indices.len);
     std.debug.print("Building mesh with {d} vertices {d} indices\n", .{ vertices.len, indices.len });
-
-    mesh.vertex_buffer = try context.createLocalBuffer(std.mem.sliceAsBytes(mesh.vertices), .{ .vertex_buffer_bit = true });
-
-    mesh.index_buffer = try context.createLocalBuffer(std.mem.sliceAsBytes(mesh.indices), .{ .index_buffer_bit = true });
-
+    mesh.vertex_buffer = try context.createLocalBuffer(std.mem.sliceAsBytes(vertices), .{ .vertex_buffer_bit = true });
+    mesh.index_buffer = try context.createLocalBuffer(std.mem.sliceAsBytes(indices), .{ .index_buffer_bit = true });
     std.debug.print("Mesh indices and vertices built\n", .{});
 }
 

@@ -272,12 +272,18 @@ pub const Renderer = struct {
 
         context.vkd.cmdBeginRenderingKHR(self.getCommandBuffer(), &render_info);
 
-        // Set viewport and scissor
+        // Vulkan coordinate system default to:
+        // +Y down
+        // +X right
+        // +Z back
+        // It is convenient to have +Y up so we need to transform the viewport here
+        // { width: vp.width, height: -vp.height }
+        // { x: 0, y: vp.height }
         const viewport = vk.Viewport{
             .x = 0,
-            .y = 0,
+            .y = @floatFromInt(self.extent.height),
             .width = @floatFromInt(self.extent.width),
-            .height = @floatFromInt(self.extent.height),
+            .height = -@as(f32, @floatFromInt(self.extent.height)),
             .min_depth = 0.0,
             .max_depth = 1.0,
         };

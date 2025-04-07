@@ -72,7 +72,7 @@ pub fn ResourcePool(comptime T: type) type {
                 return;
             }
             const entry = &self.entries.items[handle.index];
-            if (entry.generation != handle.generation) {
+            if (entry.generation != handle.generation or !entry.active) {
                 return;
             }
             self.entries.items[handle.index].active = false;
