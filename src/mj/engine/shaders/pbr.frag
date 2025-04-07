@@ -16,9 +16,9 @@ layout(location = 3) in vec3 position;
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    vec3 lightPos = vec3(sin(time*0.23457), cos(time*0.543217), tan(time))*20.0;
+    vec3 lightPos = vec3(sin(time*0.23457), cos(time*0.543217), sin(time*0.766453))*20.0;
     vec3 lightDir = normalize(lightPos - position);
-    float brightness = max(dot(normalize(normal), lightDir), 0.0);
+    float brightness = max(dot(normalize(normal), lightDir), 0.15);
     vec4 albedo = texture(albedoSampler, uv);
     vec4 shadedColor = brightness * brightness * albedo;
     outColor = shadedColor;

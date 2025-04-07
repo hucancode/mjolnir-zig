@@ -52,7 +52,7 @@ pub fn main() !void {
     }
 
     e.scene.camera.position = .{ 0.0, 10.0, -15.0, 0.0 };
-    e.scene.camera.lookAt(.{ 0.0, 2.5, 0.0, 0.0 });
+    e.scene.camera.lookAt(.{ 0.0, 2.5, -5.0, 0.0 });
     std.debug.print("App initialized\n", .{});
 
     while (!e.shouldClose()) {
