@@ -361,27 +361,6 @@ pub const Engine = struct {
         self.parentNode(self.scene.root, node);
     }
 
-    pub fn buildSkeletalMesh(
-        self: *Engine,
-        mesh: *SkeletalMesh,
-        vertices: []const SkeletalMesh.Vertex,
-        indices: []const u32,
-        bones: []const Handle,
-        material: Handle,
-    ) !void {
-        mesh.material = material;
-        mesh.vertices = try self.allocator.dupe(SkeletalMesh.Vertex, vertices);
-        mesh.indices = try self.allocator.dupe(u32, indices);
-        mesh.bones = try self.allocator.dupe(Handle, bones);
-        mesh.animations = std.StringHashMap(SkeletalMesh.AnimationTrack).init(self.allocator);
-        mesh.vertex_buffer = try self.context.createLocalBuffer(std.mem.sliceAsBytes(mesh.vertices), .{ .vertex_buffer_bit = true });
-        mesh.index_buffer = try self.context.createLocalBuffer(std.mem.sliceAsBytes(mesh.indices), .{ .index_buffer_bit = true });
-        if (bones.len > 0) {
-            const bone_buffer_size = bones.len * @sizeOf(zm.Mat);
-            mesh.bone_buffer = try self.context.mallocHostVisibleBuffer(bone_buffer_size, .{ .storage_buffer_bit = true, .transfer_dst_bit = true });
-        }
-    }
-
     pub fn createSkeletalMesh(
         self: *Engine,
         vertices: []const SkeletalMesh.Vertex,
@@ -391,7 +370,17 @@ pub const Engine = struct {
     ) !Handle {
         const handle = self.skeletal_meshes.malloc();
         const mesh = try self.skeletal_meshes.get(handle);
-        try self.buildSkeletalMesh(mesh, vertices, indices, bones, material);
+        mesh.vertices_len = vertices.len;
+        mesh.indices_len = indices.len;
+        mesh.material = material;
+        mesh.bones = try self.allocator.dupe(Handle, bones);
+        mesh.animations = std.StringHashMap(SkeletalMesh.AnimationTrack).init(self.allocator);
+        mesh.vertex_buffer = try self.context.createLocalBuffer(std.mem.sliceAsBytes(vertices), .{ .vertex_buffer_bit = true });
+        mesh.index_buffer = try self.context.createLocalBuffer(std.mem.sliceAsBytes(indices), .{ .index_buffer_bit = true });
+        if (bones.len > 0) {
+            const bone_buffer_size = bones.len * @sizeOf(zm.Mat);
+            mesh.bone_buffer = try self.context.mallocHostVisibleBuffer(bone_buffer_size, .{ .storage_buffer_bit = true, .transfer_dst_bit = true });
+        }
         return handle;
     }
 
@@ -437,7 +426,7 @@ pub const Engine = struct {
         const fragment_code align(@alignOf(u32)) = @embedFile("shaders/pbr.frag.spv").*;
         try mat.initDescriptorSet(&self.context);
         std.debug.print("Material descriptor set initialized\n", .{});
-        try buildMaterial(mat, self, &vertex_code, &fragment_code);
+        try buildMaterial(self, mat, &vertex_code, &fragment_code);
         std.debug.print("Material created\n", .{});
         return handle;
     }
@@ -449,7 +438,7 @@ pub const Engine = struct {
         const fragment_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr.frag.spv").*;
         mat.max_bones = max_bones;
         try mat.initDescriptorSet(&self.context);
-        try buildSkinnedMaterial(mat, self, &vertex_code, &fragment_code);
+        try buildSkinnedMaterial(self, mat, &vertex_code, &fragment_code);
         return handle;
     }
     pub fn createCube(self: *Engine, material: Handle) !Handle {

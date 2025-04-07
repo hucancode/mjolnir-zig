@@ -41,7 +41,6 @@ pub const Material = struct {
             .descriptor_type = .combined_image_sampler,
             .descriptor_count = 1,
             .stage_flags = .{ .fragment_bit = true },
-            .p_immutable_samplers = null,
         };
 
         const metallic_binding = vk.DescriptorSetLayoutBinding{
@@ -49,7 +48,6 @@ pub const Material = struct {
             .descriptor_type = .combined_image_sampler,
             .descriptor_count = 1,
             .stage_flags = .{ .fragment_bit = true },
-            .p_immutable_samplers = null,
         };
 
         const roughness_binding = vk.DescriptorSetLayoutBinding{
@@ -57,7 +55,6 @@ pub const Material = struct {
             .descriptor_type = .combined_image_sampler,
             .descriptor_count = 1,
             .stage_flags = .{ .fragment_bit = true },
-            .p_immutable_samplers = null,
         };
 
         const bindings = [_]vk.DescriptorSetLayoutBinding{
@@ -155,11 +152,11 @@ pub const Material = struct {
 };
 
 /// Build a PBR material pipeline
-pub fn buildMaterial(mat: *Material, engine: *Engine, vertex_code: []align(@alignOf(u32)) const u8, fragment_code: []align(@alignOf(u32)) const u8) !void {
-    const vert_shader = try engine.context.createShaderModule(vertex_code);
-    defer engine.context.vkd.destroyShaderModule(vert_shader, null);
-    const frag_shader = try engine.context.createShaderModule(fragment_code);
-    defer engine.context.vkd.destroyShaderModule(frag_shader, null);
+pub fn buildMaterial(self: *Engine, mat: *Material, vertex_code: []align(@alignOf(u32)) const u8, fragment_code: []align(@alignOf(u32)) const u8) !void {
+    const vert_shader = try self.context.createShaderModule(vertex_code);
+    defer self.context.vkd.destroyShaderModule(vert_shader, null);
+    const frag_shader = try self.context.createShaderModule(fragment_code);
+    defer self.context.vkd.destroyShaderModule(frag_shader, null);
     const shader_stages = [_]vk.PipelineShaderStageCreateInfo{
         .{
             .stage = .{ .vertex_bit = true },
@@ -256,7 +253,7 @@ pub fn buildMaterial(mat: *Material, engine: *Engine, vertex_code: []align(@alig
 
     // Create descriptor set layouts
     const set_layouts = [_]vk.DescriptorSetLayout{
-        engine.scene.descriptor_set_layout,
+        self.scene.descriptor_set_layout,
         mat.descriptor_set_layout,
     };
 
@@ -275,7 +272,7 @@ pub fn buildMaterial(mat: *Material, engine: *Engine, vertex_code: []align(@alig
         .p_push_constant_ranges = @ptrCast(&push_constant),
     };
 
-    mat.pipeline_layout = try engine.context.vkd.createPipelineLayout(&layout_info, null);
+    mat.pipeline_layout = try self.context.vkd.createPipelineLayout(&layout_info, null);
     std.debug.print("Material pipeline layout created\n", .{});
 
     // Create depth stencil state
@@ -294,7 +291,7 @@ pub fn buildMaterial(mat: *Material, engine: *Engine, vertex_code: []align(@alig
     // Create dynamic rendering info
     const rendering_info = vk.PipelineRenderingCreateInfoKHR{
         .color_attachment_count = 1,
-        .p_color_attachment_formats = @ptrCast(&engine.renderer.format.format),
+        .p_color_attachment_formats = @ptrCast(&self.renderer.format.format),
         .depth_attachment_format = .d32_sfloat,
         .stencil_attachment_format = .undefined,
         .view_mask = 0,
@@ -320,7 +317,7 @@ pub fn buildMaterial(mat: *Material, engine: *Engine, vertex_code: []align(@alig
 
     // Create pipeline
     var pipeline: vk.Pipeline = undefined;
-    _ = try engine.context.vkd.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_info), null, @ptrCast(&pipeline));
+    _ = try self.context.vkd.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_info), null, @ptrCast(&pipeline));
 
     mat.pipeline = pipeline;
     std.debug.print("Material pipeline created\n", .{});

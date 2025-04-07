@@ -12,8 +12,6 @@ const SKINNED_VERTEX_ATTR_DESCRIPTION = @import("../geometry/skeletal_mesh.zig")
 
 /// Material for skinned mesh rendering
 pub const SkinnedMaterial = struct {
-    vertex_code: []align(@alignOf(u32)) const u8,
-    fragment_code: []align(@alignOf(u32)) const u8,
     albedo: Handle,
     metallic: Handle,
     roughness: Handle,
@@ -26,8 +24,6 @@ pub const SkinnedMaterial = struct {
 
     pub fn init(allocator: Allocator) SkinnedMaterial {
         return .{
-            .vertex_code = &[_]u8{},
-            .fragment_code = &[_]u8{},
             .albedo = undefined,
             .metallic = undefined,
             .roughness = undefined,
@@ -47,51 +43,42 @@ pub const SkinnedMaterial = struct {
             .descriptor_type = .combined_image_sampler,
             .descriptor_count = 1,
             .stage_flags = .{ .fragment_bit = true },
-            .p_immutable_samplers = null,
         };
-
         const metallic_binding = vk.DescriptorSetLayoutBinding{
             .binding = 1,
             .descriptor_type = .combined_image_sampler,
             .descriptor_count = 1,
             .stage_flags = .{ .fragment_bit = true },
         };
-
         const roughness_binding = vk.DescriptorSetLayoutBinding{
             .binding = 2,
             .descriptor_type = .combined_image_sampler,
             .descriptor_count = 1,
             .stage_flags = .{ .fragment_bit = true },
         };
-
         const bones_binding = vk.DescriptorSetLayoutBinding{
             .binding = 3,
             .descriptor_type = .storage_buffer,
             .descriptor_count = 1,
             .stage_flags = .{ .vertex_bit = true },
         };
-
         const bindings = [_]vk.DescriptorSetLayoutBinding{
             albedo_binding,
             metallic_binding,
             roughness_binding,
             bones_binding,
         };
-
         const layout_info = vk.DescriptorSetLayoutCreateInfo{
             .binding_count = bindings.len,
             .p_bindings = &bindings,
         };
-
         self.descriptor_set_layout = try context.vkd.createDescriptorSetLayout(&layout_info, null);
-
         // Allocate descriptor set
         const alloc_info = vk.DescriptorSetAllocateInfo{
             .descriptor_pool = context.descriptor_pool,
             .descriptor_set_count = 1,
             .p_set_layouts = @ptrCast(&self.descriptor_set_layout),
         };
-
         try context.vkd.allocateDescriptorSets(&alloc_info, &self.descriptor_set);
     }
 
@@ -117,7 +104,6 @@ pub const SkinnedMaterial = struct {
                 .image_layout = .shader_read_only_optimal,
             },
         };
-
         // Create write descriptor set structures
         const writes = [_]vk.WriteDescriptorSet{
             // Albedo texture
@@ -154,7 +140,6 @@ pub const SkinnedMaterial = struct {
                 .p_texel_buffer_view = undefined,
             },
         };
-
         // Update descriptors
         context.vkd.updateDescriptorSets(writes.len, &writes, 0, undefined);
     }
@@ -166,7 +151,6 @@ pub const SkinnedMaterial = struct {
             .offset = 0,
             .range = size,
         };
-
         // Create write descriptor set
         const write = vk.WriteDescriptorSet{
             .dst_set = self.descriptor_set,
@@ -178,7 +162,6 @@ pub const SkinnedMaterial = struct {
             .p_image_info = undefined,
             .p_texel_buffer_view = undefined,
         };
-
         // Update descriptor
         context.vkd.updateDescriptorSets(1, @ptrCast(&write), 0, undefined);
     }
@@ -187,20 +170,17 @@ pub const SkinnedMaterial = struct {
         context.vkd.destroyPipeline(self.pipeline, null);
         context.vkd.destroyPipelineLayout(self.pipeline_layout, null);
         context.vkd.destroyDescriptorSetLayout(self.descriptor_set_layout, null);
-
-        if (self.vertex_code.len > 0) self.allocator.free(self.vertex_code);
-        if (self.fragment_code.len > 0) self.allocator.free(self.fragment_code);
     }
 };
 
 /// Build a skinned material pipeline
-pub fn buildSkinnedMaterial(engine: *Engine, mat: *SkinnedMaterial, vertex_code: []align(@alignOf(u32)) const u8, fragment_code: []align(@alignOf(u32)) const u8) !void {
+pub fn buildSkinnedMaterial(self: *Engine, mat: *SkinnedMaterial, vertex_code: []align(@alignOf(u32)) const u8, fragment_code: []align(@alignOf(u32)) const u8) !void {
     // Create shader modules
-    const vert_shader = try engine.context.createShaderModule(vertex_code);
-    defer engine.context.vkd.destroyShaderModule(vert_shader, null);
+    const vert_shader = try self.context.createShaderModule(vertex_code);
+    defer self.context.vkd.destroyShaderModule(vert_shader, null);
 
-    const frag_shader = try engine.context.createShaderModule(fragment_code);
-    defer engine.context.vkd.destroyShaderModule(frag_shader, null);
+    const frag_shader = try self.context.createShaderModule(fragment_code);
+    defer self.context.vkd.destroyShaderModule(frag_shader, null);
 
     // Create shader stages
     const shader_stages = [_]vk.PipelineShaderStageCreateInfo{
@@ -310,7 +290,7 @@ pub fn buildSkinnedMaterial(engine: *Engine, mat: *SkinnedMaterial, vertex_code:
 
     // Create descriptor set layouts
     const set_layouts = [_]vk.DescriptorSetLayout{
-        engine.scene.descriptor_set_layout,
+        self.scene.descriptor_set_layout,
         mat.descriptor_set_layout,
     };
 
@@ -322,11 +302,11 @@ pub fn buildSkinnedMaterial(engine: *Engine, mat: *SkinnedMaterial, vertex_code:
         .p_push_constant_ranges = @ptrCast(&push_constant),
     };
 
-    mat.pipeline_layout = try engine.context.vkd.createPipelineLayout(&layout_info, null);
+    mat.pipeline_layout = try self.context.vkd.createPipelineLayout(&layout_info, null);
 
     const rendering_info = vk.PipelineRenderingCreateInfoKHR{
         .color_attachment_count = 1,
-        .p_color_attachment_formats = @ptrCast(&engine.renderer.format.format),
+        .p_color_attachment_formats = @ptrCast(&self.renderer.format.format),
         .depth_attachment_format = .d32_sfloat,
         .stencil_attachment_format = .undefined,
         .view_mask = 0,
@@ -351,7 +331,7 @@ pub fn buildSkinnedMaterial(engine: *Engine, mat: *SkinnedMaterial, vertex_code:
 
     // Create pipeline
     var pipeline: vk.Pipeline = undefined;
-    _ = try engine.context.vkd.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_info), null, @ptrCast(&pipeline));
+    _ = try self.context.vkd.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_info), null, @ptrCast(&pipeline));
 
     mat.pipeline = pipeline;
 }
