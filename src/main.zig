@@ -9,7 +9,7 @@ const HEIGHT = 720;
 const TITLE = "Hello Mjolnir!";
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
-var nodes: [4]Handle = undefined;
+var nodes: [2]Handle = undefined;
 
 pub fn main() !void {
     defer _ = gpa.deinit();
@@ -35,7 +35,7 @@ fn setup(e: *mj.Engine) !void {
     const mesh = try e.createCube(material);
     var prev = e.scene.root;
     // animating tail
-    for (0..4) |i| {
+    for (0..nodes.len) |i| {
         const handle = e.createMeshNode(mesh);
         nodes[i] = handle;
         const node = e.nodes.get(handle) orelse continue;

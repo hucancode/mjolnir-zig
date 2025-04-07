@@ -450,9 +450,7 @@ pub const Engine = struct {
 
     // Node methods
     pub fn initNode(self: *Engine) Handle {
-        std.debug.print("init node", .{});
         const handle = self.nodes.malloc();
-        std.debug.print("init node, handle = {}", .{handle});
         if (self.nodes.get(handle)) |node| {
             node.init(self.allocator);
             node.parent = handle;
