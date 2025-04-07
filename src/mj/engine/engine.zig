@@ -178,7 +178,7 @@ pub const Engine = struct {
                             const offset: vk.DeviceSize = 0;
                             self.context.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&mesh.vertex_buffer.buffer), @ptrCast(&offset));
                             self.context.vkd.cmdBindIndexBuffer(command_buffer, mesh.index_buffer.buffer, 0, .uint32);
-                            self.context.vkd.cmdDrawIndexed(command_buffer, @intCast(mesh.indices.len), 1, 0, 0, 0);
+                            self.context.vkd.cmdDrawIndexed(command_buffer, mesh.indices_len, 1, 0, 0, 0);
                         }
                     }
                 },
@@ -195,7 +195,7 @@ pub const Engine = struct {
                             const offset: vk.DeviceSize = 0;
                             self.context.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&mesh.vertex_buffer.buffer), @ptrCast(&offset));
                             self.context.vkd.cmdBindIndexBuffer(command_buffer, mesh.index_buffer.buffer, 0, .uint32);
-                            self.context.vkd.cmdDrawIndexed(command_buffer, @intCast(mesh.indices.len), 1, 0, 0, 0);
+                            self.context.vkd.cmdDrawIndexed(command_buffer, mesh.indices_len, 1, 0, 0, 0);
                         }
                     }
                 },

@@ -84,9 +84,9 @@ pub const SKINNED_VERTEX_ATTR_DESCRIPTION = [_]vk.VertexInputAttributeDescriptio
 
 /// Skeletal mesh with skinning support
 pub const SkeletalMesh = struct {
-    vertices: []SkinnedVertex,
-    indices: []u32,
     bones: []Handle,
+    vertices_len: u32 = 0,
+    indices_len: u32 = 0,
     animations: StringHashMap(AnimationTrack),
     vertex_buffer: DataBuffer,
     index_buffer: DataBuffer,
@@ -96,9 +96,9 @@ pub const SkeletalMesh = struct {
 
     pub fn init(allocator: Allocator) SkeletalMesh {
         return .{
-            .vertices = &[_]SkinnedVertex{},
-            .indices = &[_]u32{},
             .bones = &[_]Handle{},
+            .vertices_len = 0,
+            .indices_len = 0,
             .animations = StringHashMap(AnimationTrack).init(allocator),
             .vertex_buffer = undefined,
             .index_buffer = undefined,
@@ -111,19 +111,14 @@ pub const SkeletalMesh = struct {
     pub fn deinit(self: *SkeletalMesh, context: *VulkanContext) void {
         self.vertex_buffer.deinit(context);
         self.index_buffer.deinit(context);
-
         if (self.bones.len > 0) {
             self.bone_buffer.deinit(context);
         }
-
         var animation_iter = self.animations.iterator();
         while (animation_iter.next()) |entry| {
             entry.value_ptr.deinit(self.allocator);
         }
         self.animations.deinit();
-
-        self.allocator.free(self.vertices);
-        self.allocator.free(self.indices);
         self.allocator.free(self.bones);
     }
 };

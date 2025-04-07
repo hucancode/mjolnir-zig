@@ -271,6 +271,7 @@ pub const VulkanContext = struct {
 
     pub fn findQueueFamilies(self: *VulkanContext, physical_device: vk.PhysicalDevice) !QueueFamilyIndices {
         const queue_families = try self.vki.getPhysicalDeviceQueueFamilyPropertiesAlloc(physical_device, self.allocator);
+        defer self.allocator.free(queue_families);
         var graphics_family: ?u32 = null;
         var present_family: ?u32 = null;
         for (queue_families, 0..) |family, i| {
