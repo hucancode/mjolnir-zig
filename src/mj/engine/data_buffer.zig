@@ -8,6 +8,15 @@ pub const DataBuffer = struct {
     mapped: ?*anyopaque,
     size: usize,
 
+    pub fn write(self: *DataBuffer, data: []const u8) void {
+        if (self.mapped != null) {
+            const dst_ptr: [*]u8 = @ptrCast(self.mapped);
+            const dst = dst_ptr[0..data.len];
+            const src = data;
+            @memcpy(dst, src);
+        }
+    }
+
     pub fn deinit(self: *DataBuffer, context: *VulkanContext) void {
         if (self.mapped != null) {
             context.vkd.unmapMemory(self.memory);

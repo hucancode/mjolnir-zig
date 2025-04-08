@@ -29,8 +29,7 @@ const ResourcePool = @import("resource.zig").ResourcePool;
 
 const buildMaterial = @import("../material/pbr.zig").buildMaterial;
 const buildSkinnedMaterial = @import("../material/skinned_pbr.zig").buildSkinnedMaterial;
-const buildCube = @import("../geometry/static_mesh.zig").buildCube;
-const writeBuffer = @import("context.zig").writeBuffer;
+
 const RENDER_FPS = 60.0;
 const FRAME_TIME = 1.0 / RENDER_FPS;
 const FRAME_TIME_NANO: u64 = @intFromFloat(FRAME_TIME * 1_000_000_000.0);
@@ -143,7 +142,7 @@ pub const Engine = struct {
             .projection = self.scene.projectionMatrix(),
             .time = @floatCast(elapsed_seconds),
         };
-        writeBuffer(self.renderer.getUniform(), std.mem.asBytes(&data));
+        self.renderer.getUniform().write(std.mem.asBytes(&data));
     }
 
     pub fn tryRender(self: *Engine) !void {
@@ -444,7 +443,7 @@ pub const Engine = struct {
     pub fn createCube(self: *Engine, material: Handle) !Handle {
         const ret = self.meshes.malloc();
         const mesh_ptr = self.meshes.get(ret).?;
-        try buildCube(&self.context, mesh_ptr, material, .{ 0.0, 0.0, 0.0, 0.0 });
+        try mesh_ptr.buildCube(&self.context, material, .{ 0.0, 0.0, 0.0, 0.0 });
         return ret;
     }
 

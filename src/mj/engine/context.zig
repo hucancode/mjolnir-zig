@@ -485,7 +485,7 @@ pub const VulkanContext = struct {
 
     pub fn createHostVisibleBuffer(self: *VulkanContext, data: []const u8, usage: vk.BufferUsageFlags) !DataBuffer {
         var buffer = try self.mallocHostVisibleBuffer(data.len, usage);
-        writeBuffer(&buffer, data);
+        buffer.write(data);
         return buffer;
     }
 
@@ -679,13 +679,4 @@ fn debugCallback(
         }
     }
     return vk.FALSE;
-}
-
-pub fn writeBuffer(buffer: *DataBuffer, data: []const u8) void {
-    if (buffer.mapped != null) {
-        const dst_ptr: [*]u8 = @ptrCast(buffer.mapped);
-        const dst = dst_ptr[0..data.len];
-        const src = data;
-        @memcpy(dst, src);
-    }
 }
