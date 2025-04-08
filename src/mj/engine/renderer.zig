@@ -21,11 +21,11 @@ pub const Frame = struct {
     uniform: DataBuffer,
     descriptor_set: vk.DescriptorSet,
 
-    pub fn deinit(self: *Frame, context: *VulkanContext, command_pool: vk.CommandPool) void {
+    pub fn deinit(self: *Frame, context: *VulkanContext) void {
         context.vkd.destroySemaphore(self.image_available_semaphore, null);
         context.vkd.destroySemaphore(self.render_finished_semaphore, null);
         context.vkd.destroyFence(self.fence, null);
-        context.vkd.freeCommandBuffers(command_pool, 1, @ptrCast(&self.command_buffer));
+        context.vkd.freeCommandBuffers(context.command_pool, 1, @ptrCast(&self.command_buffer));
         self.uniform.deinit(context);
     }
 };
@@ -411,7 +411,7 @@ pub const Renderer = struct {
     pub fn deinit(self: *Renderer, context: *VulkanContext) void {
         self.destroySwapchain(context);
         for (&self.frames) |*frame| {
-            frame.deinit(context, context.command_pool);
+            frame.deinit(context);
         }
     }
 };

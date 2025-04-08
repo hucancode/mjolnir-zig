@@ -116,6 +116,8 @@ pub const VulkanContext = struct {
         self.vki.destroyInstance(null);
         self.allocator.free(self.surface_formats);
         self.allocator.free(self.present_modes);
+        self.allocator.destroy(self.vki.wrapper);
+        self.allocator.destroy(self.vkd.wrapper);
     }
 
     fn initVulkanInstance(self: *VulkanContext) !void {
@@ -586,8 +588,6 @@ pub const VulkanContext = struct {
             barrier.dst_access_mask = .{ .shader_read_bit = true };
             src_stage = .{ .transfer_bit = true };
             dst_stage = .{ .fragment_shader_bit = true };
-        } else {
-            return error.UnsupportedLayoutTransition;
         }
         self.vkd.cmdPipelineBarrier(
             cmd_buffer,
