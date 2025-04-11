@@ -62,6 +62,8 @@ fn setup(e: *mj.Engine) !void {
     }
     e.scene.camera.position = .{ 0.0, 10.0, -15.0, 0.0 };
     e.scene.camera.lookAt(.{ 0.0, 2.5, -5.0, 0.0 });
+    const model = try e.loadGltfModelDefault("assets/BoxVertexColors.glb", material);
+    e.addToRoot(model.root_node);
 }
 
 fn update(e: *mj.Engine) void {
@@ -69,5 +71,4 @@ fn update(e: *mj.Engine) void {
         const node = e.nodes.get(cube) orelse continue;
         node.transform.rotation = zm.quatFromNormAxisAngle(.{ 0.0, 1.0, 0.0, 0.0 }, std.math.pi * e.getTime() * 0.5);
     }
-
 }

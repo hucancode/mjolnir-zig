@@ -26,6 +26,9 @@ const Material = @import("../material/pbr.zig").Material;
 const SkinnedMaterial = @import("../material/skinned_pbr.zig").SkinnedMaterial;
 const Light = @import("../scene/light.zig").Light;
 const ResourcePool = @import("resource.zig").ResourcePool;
+const GltfLoader = @import("../geometry/gltf_loader.zig");
+const GltfModel = GltfLoader.GltfModel;
+const GltfLoadOptions = GltfLoader.GltfLoadOptions;
 
 const buildMaterial = @import("../material/pbr.zig").buildMaterial;
 const buildSkinnedMaterial = @import("../material/skinned_pbr.zig").buildSkinnedMaterial;
@@ -562,6 +565,14 @@ pub const Engine = struct {
         parent_node.children.append(child) catch |err| {
             std.debug.print("Failed to append child to parent: {any}\n", .{err});
         };
+    }
+    pub fn loadGltfModel(self: *Engine, filepath: [:0]const u8, default_material: Handle, options: GltfLoadOptions) !GltfModel {
+        return GltfLoader.loadGltfModel(self, filepath, default_material, options);
+    }
+
+    // Add a convenience method with default options
+    pub fn loadGltfModelDefault(self: *Engine, filepath: [:0]const u8, default_material: Handle) !GltfModel {
+        return self.loadGltfModel(filepath, default_material, .{});
     }
 };
 
