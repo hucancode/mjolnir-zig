@@ -44,21 +44,9 @@ fn setup(e: *mj.Engine) !void {
             node.transform.position[0] = 3.0;
         } else {
             node.transform.position[1] = 2.5;
-            node.transform.position[2] = 0.0;
+            node.transform.position[2] = 3.0;
         }
         prev = handle;
-    }
-    // cube array
-    for (0..5) |i_unsigned| {
-        const i = @as(i32, @intCast(i_unsigned)) - 2;
-        for (0..5) |j_unsigned| {
-            const j = @as(i32, @intCast(j_unsigned)) - 2;
-            const handle = e.createMeshNode(mesh);
-            e.addToRoot(handle);
-            const node = e.nodes.get(handle) orelse continue;
-            node.transform.position[0] = @as(f32, @floatFromInt(i)) * 3.0;
-            node.transform.position[2] = @as(f32, @floatFromInt(j)) * 3.0;
-        }
     }
     e.scene.camera.position = .{ 0.0, 10.0, -15.0, 0.0 };
     e.scene.camera.lookAt(.{ 0.0, 2.5, -5.0, 0.0 });

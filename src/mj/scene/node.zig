@@ -18,7 +18,7 @@ pub const Transform = struct {
         return zm.mul(zm.mul(zm.matFromQuat(self.rotation), zm.translationV(self.position)), zm.scalingV(self.scale));
     }
     pub fn fromMatrix(self: *Transform, m: zm.Mat) void {
-        // Extract translation from matrix
+        std.debug.print("load matrix {any}\n", .{m});
         self.position = zm.Vec{ m[0][3], m[1][3], m[2][3], 1.0 };
         const x_scale = zm.length3(m[0])[0];
         const y_scale = zm.length3(m[1])[0];

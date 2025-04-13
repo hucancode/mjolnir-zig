@@ -632,6 +632,7 @@ pub const Engine = struct {
                     for (positions, 0..) |pos, i| {
                         vertices.items[i].position = pos;
                     }
+                    std.debug.print("loaded {} positions", .{positions.len});
                 } else if (attribute.type == .normal) {
                     const normals = try self.unpackAccessorFloats(3, accessor);
                     defer self.allocator.free(normals);
@@ -639,6 +640,7 @@ pub const Engine = struct {
                     for (normals, 0..) |normal, i| {
                         vertices.items[i].normal = normal;
                     }
+                    std.debug.print("loaded {} normals", .{normals.len});
                 } else if (attribute.type == .texcoord) {
                     const uvs = try self.unpackAccessorFloats(2, accessor);
                     defer self.allocator.free(uvs);
@@ -646,6 +648,7 @@ pub const Engine = struct {
                     for (uvs, 0..) |uv, i| {
                         vertices.items[i].uv = .{ uv[0], uv[1] };
                     }
+                    std.debug.print("loaded {} uvs", .{uvs.len});
                 }
             }
             if (primitive.indices) |accessor| {
