@@ -3,6 +3,7 @@ const vk = @import("vulkan");
 const glfw = @import("zglfw");
 const zm = @import("zmath");
 const zstbi = @import("zstbi");
+const zcgltf = @import("zmesh").io.zcgltf;
 
 const Allocator = std.mem.Allocator;
 const Time = std.time.Instant;
@@ -22,6 +23,7 @@ const Texture = @import("../material/texture.zig").Texture;
 const QueueFamilyIndices = @import("context.zig").QueueFamilyIndices;
 const SwapchainSupport = @import("context.zig").SwapchainSupport;
 const StaticMesh = @import("../geometry/static_mesh.zig").StaticMesh;
+const Vertex = @import("../geometry/static_mesh.zig").Vertex;
 const Material = @import("../material/pbr.zig").Material;
 const SkinnedMaterial = @import("../material/skinned_pbr.zig").SkinnedMaterial;
 const Light = @import("../scene/light.zig").Light;
@@ -137,7 +139,7 @@ pub const Engine = struct {
     pub fn pushSceneUniform(self: *Engine) void {
         const now = Time.now() catch return;
         const elapsed_seconds = @as(f64, @floatFromInt(now.since(self.start_timestamp))) / 1000_000_000.0;
-        const data = SceneUniform {
+        const data = SceneUniform{
             .view = self.scene.viewMatrix(),
             .projection = self.scene.projectionMatrix(),
             .time = @floatCast(elapsed_seconds),
@@ -440,10 +442,18 @@ pub const Engine = struct {
         try buildSkinnedMaterial(self, mat, &vertex_code, &fragment_code);
         return handle;
     }
+
     pub fn createCube(self: *Engine, material: Handle) !Handle {
         const ret = self.meshes.malloc();
         const mesh_ptr = self.meshes.get(ret).?;
         try mesh_ptr.buildCube(&self.context, material, .{ 0.0, 0.0, 0.0, 0.0 });
+        return ret;
+    }
+
+    pub fn createMesh(self: *Engine, vertices: []const Vertex, indices: []const u32, material: Handle) !Handle {
+        const ret = self.meshes.malloc();
+        const mesh_ptr = self.meshes.get(ret).?;
+        try mesh_ptr.buildMesh(&self.context, vertices, indices, material);
         return ret;
     }
 
@@ -562,6 +572,110 @@ pub const Engine = struct {
         parent_node.children.append(child) catch |err| {
             std.debug.print("Failed to append child to parent: {any}\n", .{err});
         };
+    }
+
+    pub fn loadGltf(self: *Engine, path: [:0]const u8) !void {
+        const options = zcgltf.Options{};
+        const data = try zcgltf.parseFile(options, path);
+        defer zcgltf.free(data);
+        if (data.buffers_count > 0) {
+            try zcgltf.loadBuffers(options, data, path);
+        }
+        if (data.nodes) |nodes| {
+            for (nodes[0..data.nodes_count]) |*node| {
+                try self.processGltfNode(data, node, self.scene.root);
+            }
+        }
+    }
+
+    fn processGltfNode(self: *Engine, data: *zcgltf.Data, node: *zcgltf.Node, parent: Handle) !void {
+        const handle = self.initNode();
+        const engine_node = self.nodes.get(handle) orelse return;
+        if (node.has_translation != 0) {
+            engine_node.transform.position = zm.loadArr3w(node.translation, 1.0);
+        }
+        if (node.has_rotation != 0) {
+            engine_node.transform.rotation = zm.loadArr4(node.rotation);
+        }
+        if (node.has_scale != 0) {
+            engine_node.transform.scale = zm.loadArr3w(node.scale, 1.0);
+        }
+        if (node.has_matrix != 0) {
+            const mat = zm.matFromArr(node.matrix);
+            engine_node.transform.fromMatrix(mat);
+        }
+        if (node.mesh) |mesh| {
+            try self.processGltfMesh(mesh, handle);
+        }
+        self.parentNode(parent, handle);
+        if (node.children) |children| {
+            for (children[0..node.children_count]) |child| {
+                try self.processGltfNode(data, child, handle);
+            }
+        }
+    }
+
+    fn processGltfMesh(self: *Engine, mesh: *zcgltf.Mesh, node: Handle) !void {
+        const material_handle = try self.createMaterial();
+        for (mesh.primitives[0..mesh.primitives_count]) |*primitive| {
+            var vertices = std.ArrayList(Vertex).init(self.allocator);
+            defer vertices.deinit();
+            var indices = std.ArrayList(u32).init(self.allocator);
+            defer indices.deinit();
+            // Process attributes
+            for (primitive.attributes[0..primitive.attributes_count]) |attribute| {
+                const accessor = attribute.data;
+                if (attribute.type == .position) {
+                    const positions = try self.unpackAccessorFloats(3, accessor);
+                    defer self.allocator.free(positions);
+                    try vertices.resize(@max(positions.len, vertices.items.len));
+                    for (positions, 0..) |pos, i| {
+                        vertices.items[i].position = pos;
+                    }
+                } else if (attribute.type == .normal) {
+                    const normals = try self.unpackAccessorFloats(3, accessor);
+                    defer self.allocator.free(normals);
+                    try vertices.resize(@max(normals.len, vertices.items.len));
+                    for (normals, 0..) |normal, i| {
+                        vertices.items[i].normal = normal;
+                    }
+                } else if (attribute.type == .texcoord) {
+                    const uvs = try self.unpackAccessorFloats(2, accessor);
+                    defer self.allocator.free(uvs);
+                    try vertices.resize(@max(uvs.len, vertices.items.len));
+                    for (uvs, 0..) |uv, i| {
+                        vertices.items[i].uv = .{ uv[0], uv[1] };
+                    }
+                }
+            }
+            if (primitive.indices) |accessor| {
+                const index_count = accessor.count;
+                try indices.resize(index_count);
+                _ = accessor.unpackIndices(indices.items);
+            }
+            const mesh_handle = try self.createMesh(vertices.items, indices.items, material_handle);
+            if (self.nodes.get(node)) |engine_node| {
+                engine_node.data = .{ .static_mesh = mesh_handle };
+            }
+        }
+    }
+
+    fn unpackAccessorFloats(self: *Engine, comptime components: usize, accessor: *zcgltf.Accessor) ![][components]f32 {
+        const count = accessor.count;
+        const float_count = count * components;
+        const floats = try self.allocator.alloc(f32, float_count);
+        const unpacked_count = accessor.unpackFloats(floats);
+        if (unpacked_count.len != count * components) {
+            self.allocator.free(floats);
+            return error.InvalidAccessorData;
+        }
+        const result = try self.allocator.alloc([components]f32, count);
+        for (0..count) |i| {
+            for (0..components) |j| {
+                result[i][j] = floats[i * components + j];
+            }
+        }
+        return result;
     }
 };
 

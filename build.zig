@@ -34,6 +34,7 @@ fn add_dependency(b: *std.Build, exe: *std.Build.Step.Compile, target: std.Build
     exe.root_module.addImport("zstbi", zstbi.module("root"));
     const zmesh = b.dependency("zmesh", .{});
     exe.root_module.addImport("zmesh", zmesh.module("root"));
+    exe.linkLibrary(zmesh.artifact("zmesh"));
     const vulkan = b.dependency("vulkan_zig", .{
         .registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml"),
     });

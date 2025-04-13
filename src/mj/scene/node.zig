@@ -17,6 +17,24 @@ pub const Transform = struct {
     pub fn toMatrix(self: *const Transform) zm.Mat {
         return zm.mul(zm.mul(zm.matFromQuat(self.rotation), zm.translationV(self.position)), zm.scalingV(self.scale));
     }
+    pub fn fromMatrix(self: *Transform, m: zm.Mat) void {
+        // Extract translation from matrix
+        self.position = zm.Vec{ m[0][3], m[1][3], m[2][3], 1.0 };
+        const x_scale = zm.length3(m[0])[0];
+        const y_scale = zm.length3(m[1])[0];
+        const z_scale = zm.length3(m[2])[0];
+        self.scale = zm.f32x4(x_scale, y_scale, z_scale, 1.0);
+        const safe_x_scale = if (x_scale == 0.0) 1.0 else x_scale;
+        const safe_y_scale = if (y_scale == 0.0) 1.0 else y_scale;
+        const safe_z_scale = if (z_scale == 0.0) 1.0 else z_scale;
+        const rotation_matrix = zm.Mat{
+            zm.f32x4(m[0][0] / safe_x_scale, m[0][1] / safe_x_scale, m[0][2] / safe_x_scale, 0.0),
+            zm.f32x4(m[1][0] / safe_y_scale, m[1][1] / safe_y_scale, m[1][2] / safe_y_scale, 0.0),
+            zm.f32x4(m[2][0] / safe_z_scale, m[2][1] / safe_z_scale, m[2][2] / safe_z_scale, 0.0),
+            zm.f32x4(0.0, 0.0, 0.0, 1.0),
+        };
+        self.rotation = zm.quatFromMat(rotation_matrix);
+    }
 };
 /// Scene node
 pub const Node = struct {
