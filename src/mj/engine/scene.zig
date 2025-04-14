@@ -39,10 +39,24 @@ pub const Scene = struct {
             .descriptor_count = 1,
             .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
         };
+        const light_count_binding = vk.DescriptorSetLayoutBinding{
+            .binding = 3,
+            .descriptor_type = .uniform_buffer,
+            .descriptor_count = 1,
+            .stage_flags = .{ .fragment_bit = true },
+        };
+        const light_binding = vk.DescriptorSetLayoutBinding{
+            .binding = 4,
+            .descriptor_type = .uniform_buffer,
+            .descriptor_count = 1,
+            .stage_flags = .{ .fragment_bit = true },
+        };
         const bindings = [_]vk.DescriptorSetLayoutBinding{
             view_binding,
             proj_binding,
             time_binding,
+            light_count_binding,
+            light_binding,
         };
         const layout_info = vk.DescriptorSetLayoutCreateInfo{
             .binding_count = bindings.len,

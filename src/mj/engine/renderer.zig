@@ -6,11 +6,32 @@ const ImageBuffer = @import("data_buffer.zig").ImageBuffer;
 const createImageView = @import("data_buffer.zig").createImageView;
 const VulkanContext = @import("context.zig").VulkanContext;
 const MAX_FRAMES_IN_FLIGHT = @import("context.zig").MAX_FRAMES_IN_FLIGHT;
+pub const MAX_LIGHTS = 10;
+
+pub const LightUniform = struct {
+    color: [3]f32,
+    intensity: f32,
+    position: [3]f32,
+    spot_light_angle: f32,
+    direction: [3]f32,
+    type: u32,
+};
 
 pub const SceneUniform = struct {
     view: zm.Mat,
     projection: zm.Mat,
     time: f32,
+    light_count: u32,
+    lights: [MAX_LIGHTS]LightUniform,
+    pub fn pushLight(self: *SceneUniform, light: LightUniform) void {
+        if (self.light_count < MAX_LIGHTS) {
+            self.lights[self.light_count] = light;
+            self.light_count += 1;
+        }
+    }
+    pub fn clearLights(self: *SceneUniform) void {
+        self.light_count = 0;
+    }
 };
 
 pub const Frame = struct {
@@ -116,7 +137,6 @@ pub const Renderer = struct {
             .composite_alpha = .{ .opaque_bit_khr = true },
             .present_mode = pickSwapPresentMode(present_modes),
             .clipped = vk.TRUE,
-            .old_swapchain = .null_handle,
         };
 
         if (graphics_family != present_family) {

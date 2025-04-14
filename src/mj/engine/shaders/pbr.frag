@@ -1,9 +1,21 @@
 #version 450
+const uint MAX_LIGHTS = 10;
+
+struct Light {
+    vec3 color;
+    float intensity;
+    vec3 position;
+    float spotLightAngle;
+    vec3 direction;
+    uint type;
+};
 
 layout(set = 0, binding = 0) uniform Uniforms {
     mat4 view;
     mat4 proj;
     float time;
+    uint lightCount;
+    Light lights[MAX_LIGHTS];
 };
 layout(set = 1, binding = 0) uniform sampler2D albedoSampler;
 layout(set = 1, binding = 1) uniform sampler2D metalicSampler;
@@ -15,11 +27,35 @@ layout(location = 2) in vec2 uv;
 layout(location = 3) in vec3 position;
 layout(location = 0) out vec4 outColor;
 
+vec3 calculateLighting(Light light, vec3 normal, vec3 position, vec3 viewDir, vec3 albedo) {
+    vec3 surfaceToLight;
+    float attenuation = 1.0;
+    if (light.type == 0) { // Point light
+        surfaceToLight = normalize(light.position - position);
+        float distance = length(light.position - position);
+        attenuation = 1.0 / (1.0 + 0.1 * distance + 0.01 * distance * distance);
+        //attenuation *= smoothstep(light.range, light.range * 0.9, distance);
+    } else if (light.type == 1) { // Directional light
+        surfaceToLight = -light.direction;
+    } else if (light.type == 2) { // Spot light
+        surfaceToLight = normalize(light.position - position);
+        float theta = dot(surfaceToLight, -light.direction);
+        float epsilon = light.spotLightAngle*0.1;
+        attenuation = clamp((theta - light.spotLightAngle * 0.9) / epsilon, 0.0, 1.0);
+    }
+    float diff = max(dot(normal, surfaceToLight), 0.0);
+    vec3 diffuse = diff * light.color.rgb * light.intensity * attenuation;
+    return diffuse * albedo;
+}
+
 void main() {
-    vec3 lightPos = vec3(sin(time*0.23457), cos(time*0.543217), sin(time*0.766453))*20.0;
-    vec3 lightDir = normalize(lightPos - position);
-    float brightness = max(dot(normalize(normal), lightDir), 0.15);
-    vec4 albedo = texture(albedoSampler, uv);
-    vec4 shadedColor = brightness * brightness * albedo;
-    outColor = shadedColor;
+    vec3 cameraPosition = vec3(view[0][0], view[0][1], view[0][2]);
+    vec3 albedo = texture(albedoSampler, uv).rgb;
+    vec3 viewDir = normalize(cameraPosition.xyz - position);
+    vec3 result = vec3(0.0);
+    for (int i = 0; i < lightCount; i++) {
+        result += calculateLighting(lights[i], normal, position, viewDir, albedo);
+    }
+    result += albedo * 0.1;
+    outColor = vec4(result, 1.0);
 }

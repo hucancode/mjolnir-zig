@@ -28,10 +28,12 @@ const Material = @import("../material/pbr.zig").Material;
 const SkinnedMaterial = @import("../material/skinned_pbr.zig").SkinnedMaterial;
 const Light = @import("../scene/light.zig").Light;
 const ResourcePool = @import("resource.zig").ResourcePool;
+const LightUniform = @import("renderer.zig").LightUniform;
 
 const buildMaterial = @import("../material/pbr.zig").buildMaterial;
 const buildSkinnedMaterial = @import("../material/skinned_pbr.zig").buildSkinnedMaterial;
 
+pub const MAX_LIGHTS = @cImport("renderer.zig").MAX_LIGHTS;
 const RENDER_FPS = 60.0;
 const FRAME_TIME = 1.0 / RENDER_FPS;
 const FRAME_TIME_NANO: u64 = @intFromFloat(FRAME_TIME * 1_000_000_000.0);
@@ -149,7 +151,6 @@ pub const Engine = struct {
 
     pub fn tryRender(self: *Engine) !void {
         const image_idx = try self.renderer.begin(&self.context);
-        self.pushSceneUniform();
         const command_buffer = self.renderer.getCommandBuffer();
         var node_stack = ArrayList(Handle).init(self.allocator);
         defer node_stack.deinit();
@@ -161,16 +162,54 @@ pub const Engine = struct {
                 try transform_stack.append(zm.identity());
             }
         }
-        // Process nodes depth-first
+        var scene_uniform = SceneUniform {
+            .view = self.scene.viewMatrix(),
+            .projection = self.scene.projectionMatrix(),
+            .light_count = 0,
+            .lights = undefined,
+            .time = undefined,
+        };
+        if (Time.now()) |now| {
+            const elapsed_seconds = @as(f64, @floatFromInt(now.since(self.start_timestamp))) / 1000_000_000.0;
+            scene_uniform.time = @floatCast(elapsed_seconds);
+        } else |err| {
+            std.debug.print("{}", .{err});
+            scene_uniform.time = 0.0;
+        }
         while (node_stack.items.len > 0) {
             const handle = node_stack.pop() orelse break;
             const node = self.nodes.get(handle) orelse continue;
             const local_matrix = node.transform.toMatrix();
             const world_matrix = zm.mul(local_matrix, transform_stack.pop() orelse zm.identity());
             switch (node.data) {
-                .light => |*light| {
-                    //std.debug.print("light {}", {.light});
-                    _ = light;
+                .light => |light| {
+                    if (self.lights.get(light)) |light_ptr| {
+                        var light_uniform = LightUniform {
+                            .color = light_ptr.color,
+                            .intensity = light_ptr.intensity,
+                            .position = undefined,
+                            .spot_light_angle = undefined,
+                            .direction = undefined,
+                            .type = undefined,
+                        };
+                        switch (light_ptr.data) {
+                            .point => {
+                                light_uniform.type = 0;
+                                zm.store(&light_uniform.position,zm.mul(zm.f32x4s(0.0), world_matrix), 3);
+                            },
+                            .directional => {
+                                light_uniform.type = 1;
+                                zm.store(&light_uniform.direction,zm.mul(zm.f32x4(0.0, 0.0, 1.0, 1.0), world_matrix), 3);
+                            },
+                            .spot => |data|{
+                                light_uniform.type = 2;
+                                light_uniform.spot_light_angle = data.angle;
+                                zm.store(&light_uniform.position,zm.mul(zm.f32x4s(0.0), world_matrix), 3);
+                                zm.store(&light_uniform.direction,zm.mul(zm.f32x4(0.0, 0.0, 1.0, 1.0), world_matrix), 3);
+                            },
+                        }
+                        scene_uniform.pushLight(light_uniform);
+                    }
                 },
                 .skeletal_mesh => |*skeletal_mesh| {
                     if (self.skeletal_meshes.get(skeletal_mesh.handle)) |mesh| {
@@ -184,14 +223,12 @@ pub const Engine = struct {
                                 }
                             }
                             material.updateBoneBuffer(&self.context, mesh.bone_buffer.buffer, mesh.bone_buffer.size);
-                            // Bind pipeline and descriptors
                             self.context.vkd.cmdBindPipeline(command_buffer, .graphics, material.pipeline);
                             const descriptor_sets = [_]vk.DescriptorSet{
                                 self.renderer.getDescriptorSet(),
                                 material.descriptor_set,
                             };
                             self.context.vkd.cmdBindDescriptorSets(command_buffer, .graphics, material.pipeline_layout, 0, descriptor_sets.len, &descriptor_sets, 0, undefined);
-                            // Push world matrix as a constant
                             self.context.vkd.cmdPushConstants(command_buffer, material.pipeline_layout, .{ .vertex_bit = true }, 0, @sizeOf(zm.Mat), &world_matrix);
                             const offset: vk.DeviceSize = 0;
                             self.context.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&mesh.vertex_buffer.buffer), @ptrCast(&offset));
@@ -220,14 +257,15 @@ pub const Engine = struct {
                 .none => {},
             }
             for (node.children.items) |child| {
-                if (child.index == self.scene.root.index) {
-                    std.debug.print("A node can't have root node as a child {d} {d}\n", .{ handle.index, handle.generation });
-                    continue;
-                }
+                // if (child.index == self.scene.root.index) {
+                //     std.debug.print("A node can't have root node as a child {d} {d}\n", .{ handle.index, handle.generation });
+                //     continue;
+                // }
                 try node_stack.append(child);
                 try transform_stack.append(world_matrix);
             }
         }
+        self.renderer.getUniform().write(std.mem.asBytes(&scene_uniform));
         try self.renderer.end(&self.context, image_idx);
     }
 
