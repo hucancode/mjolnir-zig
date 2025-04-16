@@ -9,12 +9,12 @@ const MAX_FRAMES_IN_FLIGHT = @import("context.zig").MAX_FRAMES_IN_FLIGHT;
 pub const MAX_LIGHTS = 10;
 
 pub const LightUniform = struct {
-    color: [3]f32,
-    intensity: f32,
-    position: [3]f32,
-    spot_light_angle: f32,
-    direction: [3]f32,
     type: u32,
+    spot_light_angle: f32,
+    // padding: [2]u32 = undefined,
+    color: zm.Vec,
+    position: zm.Vec,
+    direction: zm.Vec,
 };
 
 pub const SceneUniform = struct {
@@ -22,6 +22,7 @@ pub const SceneUniform = struct {
     projection: zm.Mat,
     time: f32,
     light_count: u32,
+    // padding: [2]u32 = undefined,
     lights: [MAX_LIGHTS]LightUniform,
     pub fn pushLight(self: *SceneUniform, light: LightUniform) void {
         if (self.light_count < MAX_LIGHTS) {

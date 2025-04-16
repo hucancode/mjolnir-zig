@@ -33,11 +33,11 @@ const LightUniform = @import("renderer.zig").LightUniform;
 const buildMaterial = @import("../material/pbr.zig").buildMaterial;
 const buildSkinnedMaterial = @import("../material/skinned_pbr.zig").buildSkinnedMaterial;
 
-pub const MAX_LIGHTS = @cImport("renderer.zig").MAX_LIGHTS;
+const MAX_LIGHTS = @import("renderer.zig").MAX_LIGHTS;
 const RENDER_FPS = 60.0;
 const FRAME_TIME = 1.0 / RENDER_FPS;
 const FRAME_TIME_NANO: u64 = @intFromFloat(FRAME_TIME * 1_000_000_000.0);
-const UPDATE_FPS = 24.0;
+const UPDATE_FPS = 4.0;
 const UPDATE_FRAME_TIME = 1.0 / UPDATE_FPS;
 const UPDATE_FRAME_TIME_NANO: u64 = @intFromFloat(UPDATE_FRAME_TIME * 1_000_000_000.0);
 
@@ -138,17 +138,6 @@ pub const Engine = struct {
         }
     }
 
-    pub fn pushSceneUniform(self: *Engine) void {
-        const now = Time.now() catch return;
-        const elapsed_seconds = @as(f64, @floatFromInt(now.since(self.start_timestamp))) / 1000_000_000.0;
-        const data = SceneUniform{
-            .view = self.scene.viewMatrix(),
-            .projection = self.scene.projectionMatrix(),
-            .time = @floatCast(elapsed_seconds),
-        };
-        self.renderer.getUniform().write(std.mem.asBytes(&data));
-    }
-
     pub fn tryRender(self: *Engine) !void {
         const image_idx = try self.renderer.begin(&self.context);
         const command_buffer = self.renderer.getCommandBuffer();
@@ -186,7 +175,6 @@ pub const Engine = struct {
                     if (self.lights.get(light)) |light_ptr| {
                         var light_uniform = LightUniform {
                             .color = light_ptr.color,
-                            .intensity = light_ptr.intensity,
                             .position = undefined,
                             .spot_light_angle = undefined,
                             .direction = undefined,
@@ -195,17 +183,18 @@ pub const Engine = struct {
                         switch (light_ptr.data) {
                             .point => {
                                 light_uniform.type = 0;
-                                zm.store(&light_uniform.position,zm.mul(zm.f32x4s(0.0), world_matrix), 3);
+                                light_uniform.position = zm.mul(zm.f32x4(0.0, 0.0, 0.0, 1.0), world_matrix);
+                                std.debug.print("light uniform = {any}\n", .{light_uniform});
                             },
                             .directional => {
                                 light_uniform.type = 1;
-                                zm.store(&light_uniform.direction,zm.mul(zm.f32x4(0.0, 0.0, 1.0, 1.0), world_matrix), 3);
+                                light_uniform.direction = zm.mul(zm.f32x4(0.0, 0.0, 1.0, 1.0), world_matrix);
                             },
-                            .spot => |data|{
+                            .spot => |angle|{
                                 light_uniform.type = 2;
-                                light_uniform.spot_light_angle = data.angle;
-                                zm.store(&light_uniform.position,zm.mul(zm.f32x4s(0.0), world_matrix), 3);
-                                zm.store(&light_uniform.direction,zm.mul(zm.f32x4(0.0, 0.0, 1.0, 1.0), world_matrix), 3);
+                                light_uniform.spot_light_angle = angle;
+                                light_uniform.position = zm.mul(zm.f32x4(0.0, 0.0, 0.0, 1.0), world_matrix);
+                                light_uniform.direction = zm.mul(zm.f32x4(0.0, 0.0, 1.0, 1.0), world_matrix);
                             },
                         }
                         scene_uniform.pushLight(light_uniform);
@@ -492,6 +481,15 @@ pub const Engine = struct {
         const ret = self.meshes.malloc();
         const mesh_ptr = self.meshes.get(ret).?;
         try mesh_ptr.buildMesh(&self.context, vertices, indices, material);
+        return ret;
+    }
+
+    pub fn createPointLight(self: *Engine, color: zm.Vec) Handle {
+        const ret = self.lights.malloc();
+        const light_ptr = self.lights.get(ret).?;
+        light_ptr.data = .point;
+        light_ptr.color = color;
+        std.debug.print("sizeof light uniform = {d}\n", .{@sizeOf(LightUniform)});
         return ret;
     }
 
