@@ -36,4 +36,8 @@ pub const Camera = struct {
         const forward = zm.rotate(self.rotation, .{ 0.0, 0.0, 1.0, 0.0 });
         return zm.lookToLh(self.position, forward, self.up);
     }
+    pub fn right(self: *const Camera) zm.Vec {
+        const forward = zm.rotate(self.rotation, .{ 0.0, 0.0, 1.0, 0.0 });
+        return zm.dot4(self.up, forward);
+    }
 };

@@ -37,7 +37,7 @@ const MAX_LIGHTS = @import("renderer.zig").MAX_LIGHTS;
 const RENDER_FPS = 60.0;
 const FRAME_TIME = 1.0 / RENDER_FPS;
 const FRAME_TIME_NANO: u64 = @intFromFloat(FRAME_TIME * 1_000_000_000.0);
-const UPDATE_FPS = 4.0;
+const UPDATE_FPS = 60.0;
 const UPDATE_FRAME_TIME = 1.0 / UPDATE_FPS;
 const UPDATE_FRAME_TIME_NANO: u64 = @intFromFloat(UPDATE_FRAME_TIME * 1_000_000_000.0);
 
@@ -154,16 +154,14 @@ pub const Engine = struct {
         var scene_uniform = SceneUniform {
             .view = self.scene.viewMatrix(),
             .projection = self.scene.projectionMatrix(),
-            .light_count = 0,
             .lights = undefined,
-            .time = undefined,
         };
         if (Time.now()) |now| {
             const elapsed_seconds = @as(f64, @floatFromInt(now.since(self.start_timestamp))) / 1000_000_000.0;
-            scene_uniform.time = @floatCast(elapsed_seconds);
+            scene_uniform.time[0] = @floatCast(elapsed_seconds);
         } else |err| {
             std.debug.print("{}", .{err});
-            scene_uniform.time = 0.0;
+            scene_uniform.time[0] = 0.0;
         }
         while (node_stack.items.len > 0) {
             const handle = node_stack.pop() orelse break;
@@ -175,29 +173,27 @@ pub const Engine = struct {
                     if (self.lights.get(light)) |light_ptr| {
                         var light_uniform = LightUniform {
                             .color = light_ptr.color,
-                            .position = undefined,
-                            .spot_light_angle = undefined,
-                            .direction = undefined,
-                            .type = undefined,
                         };
                         switch (light_ptr.data) {
                             .point => {
-                                light_uniform.type = 0;
+                                // light_uniform.kind = 0;
                                 light_uniform.position = zm.mul(zm.f32x4(0.0, 0.0, 0.0, 1.0), world_matrix);
-                                std.debug.print("light uniform = {any}\n", .{light_uniform});
+                                //std.debug.print("light uniform = {any}\n", .{light_uniform});
                             },
                             .directional => {
-                                light_uniform.type = 1;
+                                // light_uniform.kind = 1;
                                 light_uniform.direction = zm.mul(zm.f32x4(0.0, 0.0, 1.0, 1.0), world_matrix);
                             },
                             .spot => |angle|{
-                                light_uniform.type = 2;
-                                light_uniform.spot_light_angle = angle;
+                                _ = angle;
+                                // light_uniform.kind = 2;
+                                // light_uniform.spot_light_angle = angle;
                                 light_uniform.position = zm.mul(zm.f32x4(0.0, 0.0, 0.0, 1.0), world_matrix);
                                 light_uniform.direction = zm.mul(zm.f32x4(0.0, 0.0, 1.0, 1.0), world_matrix);
                             },
                         }
-                        scene_uniform.pushLight(light_uniform);
+                        scene_uniform.lights[0] = light_uniform;
+                        // scene_uniform.pushLight(light_uniform);
                     }
                 },
                 .skeletal_mesh => |*skeletal_mesh| {
@@ -336,6 +332,45 @@ pub const Engine = struct {
             }
         }
         self.last_update_timestamp = Time.now() catch return true;
+
+        // Camera Controls
+        const move_speed: f32 = 2.0; // Units per second
+        //const rotate_speed: f32 = 1.0; // Radians per second
+        const window = self.window;
+
+        // Movement
+        if (glfw.getKey(window, glfw.Key.w) == glfw.Action.press) {
+            self.scene.camera.position[2] += move_speed * delta_time;
+        }
+        if (glfw.getKey(window, glfw.Key.s) == glfw.Action.press) {
+            self.scene.camera.position[2] -=  move_speed * delta_time;
+        }
+        if (glfw.getKey(window, glfw.Key.a) == glfw.Action.press) {
+            self.scene.camera.position[0] -= move_speed * delta_time;
+        }
+        if (glfw.getKey(window, glfw.Key.d) == glfw.Action.press) {
+            self.scene.camera.position[0] += move_speed * delta_time;
+        }
+        if (glfw.getKey(window, glfw.Key.z) == glfw.Action.press) {
+            self.scene.camera.position[1] -= move_speed * delta_time;
+        }
+        if (glfw.getKey(window, glfw.Key.x) == glfw.Action.press) {
+            self.scene.camera.position[1] += move_speed * delta_time;
+        }
+
+        // Rotation
+        // if (glfw.getKey(window, glfw.Key.left) == glfw.Action.press) {
+        //     self.scene.camera.rotation = zm.qmul(self.scene.camera.rotation, zm.quatFromAxisAngle(self.scene.camera.up, -std.math.pi*rotate_speed*delta_time));
+        // }
+        // if (glfw.getKey(window, glfw.Key.right) == glfw.Action.press) {
+        //     self.scene.camera.rotation = zm.qmul(self.scene.camera.rotation, zm.quatFromAxisAngle(self.scene.camera.up, std.math.pi*rotate_speed*delta_time));
+        // }
+        // if (glfw.getKey(window, glfw.Key.up) == glfw.Action.press) {
+        //     self.scene.camera.rotation = zm.qmul(self.scene.camera.rotation, zm.quatFromAxisAngle(self.scene.camera.right(), -std.math.pi*rotate_speed*delta_time));
+        // }
+        // if (glfw.getKey(window, glfw.Key.down) == glfw.Action.press) {
+        //     self.scene.camera.rotation = zm.qmul(self.scene.camera.rotation, zm.quatFromAxisAngle(self.scene.camera.right(), std.math.pi*rotate_speed*delta_time));
+        // }
         return true;
     }
 
@@ -703,9 +738,9 @@ pub const Engine = struct {
         const count = accessor.count;
         const float_count = count * components;
         const floats = try self.allocator.alloc(f32, float_count);
+        defer self.allocator.free(floats);
         const unpacked_count = accessor.unpackFloats(floats);
         if (unpacked_count.len != count * components) {
-            self.allocator.free(floats);
             return error.InvalidAccessorData;
         }
         const result = try self.allocator.alloc([components]f32, count);

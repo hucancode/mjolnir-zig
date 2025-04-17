@@ -14,9 +14,11 @@ pub const Transform = struct {
     is_dirty: bool = false,
     local_matrix: zm.Mat = zm.identity(),
     world_matrix: zm.Mat = zm.identity(),
+
     pub fn toMatrix(self: *const Transform) zm.Mat {
         return zm.mul(zm.mul(zm.matFromQuat(self.rotation), zm.translationV(self.position)), zm.scalingV(self.scale));
     }
+
     pub fn fromMatrix(self: *Transform, m: zm.Mat) void {
         std.debug.print("load matrix {any}\n", .{m});
         self.position = zm.Vec{ m[0][3], m[1][3], m[2][3], 1.0 };
@@ -67,16 +69,11 @@ pub const Node = struct {
 pub fn unparentNode(pool: anytype, node: Handle) void {
     const child_node = pool.get(node) orelse return;
     const parent_handle = child_node.parent;
-
-    // If no parent or parent is self, nothing to do
     if (parent_handle.index == 0 or (parent_handle.index == node.index and parent_handle.generation == node.generation)) {
         return;
     }
-
     const parent_node = pool.get(parent_handle) orelse return;
     if (parent_node == child_node) return;
-
-    // Find and remove child from parent's children
     for (parent_node.children.items, 0..) |child, i| {
         if (child.index == node.index and child.generation == node.generation) {
             // Replace with last item and pop
@@ -87,8 +84,6 @@ pub fn unparentNode(pool: anytype, node: Handle) void {
             break;
         }
     }
-
-    // Set node's parent to itself (no parent)
     child_node.parent = node;
 }
 

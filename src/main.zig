@@ -49,10 +49,10 @@ fn setup(e: *mj.Engine) !void {
         }
         prev = handle;
     }
-    e.scene.camera.position = .{ 0.0, 10.0, -15.0, 0.0 };
+    e.scene.camera.position = .{ 0.0, 0.0, -15.0, 0.0 };
     e.scene.camera.lookAt(.{ 0.0, 2.5, -5.0, 0.0 });
     try e.loadGltf("assets/Duck.glb");
-    light = e.createLightNode(e.createPointLight(.{0.25, 0.5, 1.0, 1.0}));
+    light = e.createLightNode(e.createPointLight(.{0.0, 0.25, 0.5, 0.0}));
     e.addToRoot(light);
     light_cube = e.createMeshNode(mesh);
     const light_cube_ptr = e.nodes.get(light_cube).?;
@@ -65,10 +65,11 @@ fn update(e: *mj.Engine) void {
         const node = e.nodes.get(cube) orelse continue;
         node.transform.rotation = zm.quatFromNormAxisAngle(.{ 0.0, 1.0, 0.0, 0.0 }, std.math.pi * e.getTime() * 0.5);
     }
+    e.scene.camera.lookAt(.{ 0.0, 2.5, -5.0, 0.0 });
     const light_ptr = e.nodes.get(light).?;
-    const rx = std.math.sin(e.getTime()*0.6789);
-    const ry = 0.5;//std.math.cos(e.getTime()*0.4567);
-    const rz = std.math.cos(e.getTime()*0.6789);
+    const rx = std.math.sin(e.getTime());
+    const ry = std.math.sin(e.getTime()*0.2) + 1.0;
+    const rz = std.math.cos(e.getTime());
     const v = zm.normalize3(zm.f32x4(rx, ry, rz, 0.0));
     const radius = 4.0;
     light_ptr.transform.position = zm.f32x4(v[0] * radius, v[1] * radius, v[2] * radius, 0.0);
