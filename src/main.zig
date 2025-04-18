@@ -58,6 +58,10 @@ fn setup(e: *mj.Engine) !void {
     const light_cube_ptr = e.nodes.get(light_cube).?;
     light_cube_ptr.transform.scale = zm.f32x4s(0.5);
     e.parentNode(light, light_cube);
+    const sunlight = e.createLightNode(e.createDirectionalLight(.{0.0, 0.05, 0.1, 0.0}));
+    e.addToRoot(sunlight);
+    const sunlight_ptr = e.nodes.get(sunlight).?;
+    sunlight_ptr.transform.position = .{ 0.0, -10.0, 5.0, 0.0 };
 }
 
 fn update(e: *mj.Engine) void {

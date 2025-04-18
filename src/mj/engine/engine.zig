@@ -158,10 +158,9 @@ pub const Engine = struct {
         };
         if (Time.now()) |now| {
             const elapsed_seconds = @as(f64, @floatFromInt(now.since(self.start_timestamp))) / 1000_000_000.0;
-            scene_uniform.time[0] = @floatCast(elapsed_seconds);
+            scene_uniform.time = @floatCast(elapsed_seconds);
         } else |err| {
             std.debug.print("{}", .{err});
-            scene_uniform.time[0] = 0.0;
         }
         while (node_stack.items.len > 0) {
             const handle = node_stack.pop() orelse break;
@@ -176,24 +175,22 @@ pub const Engine = struct {
                         };
                         switch (light_ptr.data) {
                             .point => {
-                                // light_uniform.kind = 0;
+                                light_uniform.kind = 0;
                                 light_uniform.position = zm.mul(zm.f32x4(0.0, 0.0, 0.0, 1.0), world_matrix);
                                 //std.debug.print("light uniform = {any}\n", .{light_uniform});
                             },
                             .directional => {
-                                // light_uniform.kind = 1;
+                                light_uniform.kind = 1;
                                 light_uniform.direction = zm.mul(zm.f32x4(0.0, 0.0, 1.0, 1.0), world_matrix);
                             },
                             .spot => |angle|{
-                                _ = angle;
-                                // light_uniform.kind = 2;
-                                // light_uniform.spot_light_angle = angle;
+                                light_uniform.kind = 2;
+                                light_uniform.angle = angle;
                                 light_uniform.position = zm.mul(zm.f32x4(0.0, 0.0, 0.0, 1.0), world_matrix);
                                 light_uniform.direction = zm.mul(zm.f32x4(0.0, 0.0, 1.0, 1.0), world_matrix);
                             },
                         }
-                        scene_uniform.lights[0] = light_uniform;
-                        // scene_uniform.pushLight(light_uniform);
+                        scene_uniform.pushLight(light_uniform);
                     }
                 },
                 .skeletal_mesh => |*skeletal_mesh| {
@@ -524,7 +521,14 @@ pub const Engine = struct {
         const light_ptr = self.lights.get(ret).?;
         light_ptr.data = .point;
         light_ptr.color = color;
-        std.debug.print("sizeof light uniform = {d}\n", .{@sizeOf(LightUniform)});
+        return ret;
+    }
+
+    pub fn createDirectionalLight(self: *Engine, color: zm.Vec) Handle {
+        const ret = self.lights.malloc();
+        const light_ptr = self.lights.get(ret).?;
+        light_ptr.data = .directional;
+        light_ptr.color = color;
         return ret;
     }
 

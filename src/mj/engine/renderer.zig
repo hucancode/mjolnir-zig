@@ -12,23 +12,26 @@ pub const LightUniform = struct {
     color: zm.Vec = .{ 1.0, 1.0, 1.0, 1.0 },
     position: zm.Vec = .{ 0.0, 0.0, 0.0, 1.0 },
     direction: zm.Vec = .{ 0.0, 0.0, 0.0, 1.0 },
-    angle: zm.Vec = undefined, // angle + 3 extra info
+    kind: u32 = 0,
+    angle: f32 = 0.0,
+    radius: f32 = 5.0,
 };
 
 pub const SceneUniform = struct {
     view: zm.Mat,
     projection: zm.Mat,
-    time: zm.Vec = undefined, // time + 3 extra info
     lights: [MAX_LIGHTS]LightUniform,
-    // pub fn pushLight(self: *SceneUniform, light: LightUniform) void {
-    //     if (self.light_count < MAX_LIGHTS) {
-    //         self.lights[self.light_count] = light;
-    //         self.light_count += 1;
-    //     }
-    // }
-    // pub fn clearLights(self: *SceneUniform) void {
-    //     self.light_count = 0;
-    // }
+    light_count: u32 = 0,
+    time: f32 = 0.0,
+    pub fn pushLight(self: *SceneUniform, light: LightUniform) void {
+        if (self.light_count < MAX_LIGHTS) {
+            self.lights[self.light_count] = light;
+            self.light_count += 1;
+        }
+    }
+    pub fn clearLights(self: *SceneUniform) void {
+        self.light_count = 0;
+    }
 };
 
 pub const Frame = struct {
