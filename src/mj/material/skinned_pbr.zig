@@ -37,30 +37,35 @@ pub const SkinnedMaterial = struct {
     }
 
     pub fn initDescriptorSet(self: *SkinnedMaterial) !void {
+        std.debug.print("Creating descriptor set layout...\n", .{});
         // Create descriptor set layout with bindings for textures and bones
         const albedo_binding = vk.DescriptorSetLayoutBinding{
             .binding = 0,
             .descriptor_type = .combined_image_sampler,
             .descriptor_count = 1,
             .stage_flags = .{ .fragment_bit = true },
+            .p_immutable_samplers = null,
         };
         const metallic_binding = vk.DescriptorSetLayoutBinding{
             .binding = 1,
             .descriptor_type = .combined_image_sampler,
             .descriptor_count = 1,
             .stage_flags = .{ .fragment_bit = true },
+            .p_immutable_samplers = null,
         };
         const roughness_binding = vk.DescriptorSetLayoutBinding{
             .binding = 2,
             .descriptor_type = .combined_image_sampler,
             .descriptor_count = 1,
             .stage_flags = .{ .fragment_bit = true },
+            .p_immutable_samplers = null,
         };
         const bones_binding = vk.DescriptorSetLayoutBinding{
             .binding = 3,
             .descriptor_type = .storage_buffer,
             .descriptor_count = 1,
             .stage_flags = .{ .vertex_bit = true },
+            .p_immutable_samplers = null,
         };
         const bindings = [_]vk.DescriptorSetLayoutBinding{
             albedo_binding,
@@ -69,17 +74,23 @@ pub const SkinnedMaterial = struct {
             bones_binding,
         };
         const layout_info = vk.DescriptorSetLayoutCreateInfo{
+            .flags = .{},
             .binding_count = bindings.len,
             .p_bindings = &bindings,
         };
+        std.debug.print("Creating descriptor set layout with {} bindings\n", .{bindings.len});
         self.descriptor_set_layout = try context.*.vkd.createDescriptorSetLayout(&layout_info, null);
+        std.debug.print("Descriptor set layout created\n", .{});
+
         // Allocate descriptor set
         const alloc_info = vk.DescriptorSetAllocateInfo{
             .descriptor_pool = context.*.descriptor_pool,
             .descriptor_set_count = 1,
             .p_set_layouts = @ptrCast(&self.descriptor_set_layout),
         };
-        try context.*.vkd.allocateDescriptorSets(&alloc_info, &self.descriptor_set);
+        std.debug.print("Allocating descriptor set from pool\n", .{});
+        try context.*.vkd.allocateDescriptorSets(&alloc_info, @ptrCast(&self.descriptor_set));
+        std.debug.print("Descriptor set allocated successfully\n", .{});
     }
 
     pub fn updateTextures(self: *SkinnedMaterial, albedo: *Texture, metallic: *Texture, roughness: *Texture) void {
@@ -179,7 +190,7 @@ pub fn buildSkinnedMaterial(self: *Engine, mat: *SkinnedMaterial, vertex_code: [
     const vert_shader = try context.*.createShaderModule(vertex_code);
     defer context.*.vkd.destroyShaderModule(vert_shader, null);
 
-    const frag_shader = try self.context.*.createShaderModule(fragment_code);
+    const frag_shader = try context.*.createShaderModule(fragment_code);
     defer context.*.vkd.destroyShaderModule(frag_shader, null);
 
     // Create shader stages
@@ -270,6 +281,35 @@ pub fn buildSkinnedMaterial(self: *Engine, mat: *SkinnedMaterial, vertex_code: [
         .blend_constants = [_]f32{ 0, 0, 0, 0 },
     };
 
+    // Create depth stencil state
+    const depth_stencil = vk.PipelineDepthStencilStateCreateInfo{
+        .depth_test_enable = vk.TRUE,
+        .depth_write_enable = vk.TRUE,
+        .depth_compare_op = .less,
+        .depth_bounds_test_enable = vk.FALSE,
+        .min_depth_bounds = 0.0,
+        .max_depth_bounds = 1.0,
+        .stencil_test_enable = vk.FALSE,
+        .front = .{
+            .fail_op = .keep,
+            .pass_op = .keep,
+            .depth_fail_op = .keep,
+            .compare_op = .always,
+            .compare_mask = 0,
+            .write_mask = 0,
+            .reference = 0,
+        },
+        .back = .{
+            .fail_op = .keep,
+            .pass_op = .keep,
+            .depth_fail_op = .keep,
+            .compare_op = .always,
+            .compare_mask = 0,
+            .write_mask = 0,
+            .reference = 0,
+        },
+    };
+
     // Create dynamic state
     const dynamic_states = [_]vk.DynamicState{
         .viewport,
@@ -302,7 +342,7 @@ pub fn buildSkinnedMaterial(self: *Engine, mat: *SkinnedMaterial, vertex_code: [
         .p_push_constant_ranges = @ptrCast(&push_constant),
     };
 
-    mat.pipeline_layout = try self.context.*.vkd.createPipelineLayout(&layout_info, null);
+    mat.pipeline_layout = try context.*.vkd.createPipelineLayout(&layout_info, null);
 
     const rendering_info = vk.PipelineRenderingCreateInfoKHR{
         .color_attachment_count = 1,
@@ -323,6 +363,7 @@ pub fn buildSkinnedMaterial(self: *Engine, mat: *SkinnedMaterial, vertex_code: [
         .p_multisample_state = &multisampling,
         .p_color_blend_state = &color_blending,
         .p_dynamic_state = &dynamic_state,
+        .p_depth_stencil_state = &depth_stencil,
         .layout = mat.pipeline_layout,
         .subpass = 0,
         .base_pipeline_index = -1,
@@ -331,7 +372,7 @@ pub fn buildSkinnedMaterial(self: *Engine, mat: *SkinnedMaterial, vertex_code: [
 
     // Create pipeline
     var pipeline: vk.Pipeline = undefined;
-    _ = try self.context.*.vkd.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_info), null, @ptrCast(&pipeline));
+    _ = try context.*.vkd.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_info), null, @ptrCast(&pipeline));
 
     mat.pipeline = pipeline;
 }

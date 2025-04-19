@@ -2,7 +2,7 @@ const std = @import("std");
 const zm = @import("zmath");
 const Allocator = std.mem.Allocator;
 const ResourcePool = @import("../engine/resource.zig").ResourcePool;
-const Handle = @import("../engine/resource.zig").Handle;
+const Bone = @import("skeletal_mesh.zig").Bone;
 const Node = @import("../scene/node.zig").Node;
 
 /// Generic keyframe type for animations
@@ -98,8 +98,8 @@ pub const Animation = struct {
         return zm.slerp(a, b, t);
     }
 
-    pub fn update(self: *Animation, t: f32, node_pool: *ResourcePool(Node), bones: []const Handle) void {
-        const target = node_pool.get(bones[self.bone_idx]) orelse return;
+    pub fn update(self: *Animation, t: f32, bones: []const Bone) void {
+        var target = bones[self.bone_idx];
         if (self.positions.len > 0) {
             target.transform.position = sample(zm.Vec, self.positions, t, Animation.lerp_vector);
         }
@@ -124,9 +124,9 @@ pub const AnimationTrack = struct {
         allocator.free(self.animations);
     }
 
-    pub fn update(self: *AnimationTrack, t: f32, node_pool: *ResourcePool(Node), bones: []const Handle) void {
+    pub fn update(self: *AnimationTrack, t: f32, bones: []const Bone) void {
         for (self.animations) |*animation| {
-            animation.update(t, node_pool, bones);
+            animation.update(t, bones);
         }
     }
 };

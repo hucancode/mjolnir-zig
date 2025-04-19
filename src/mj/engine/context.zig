@@ -360,12 +360,19 @@ pub const VulkanContext = struct {
             .type = .uniform_buffer,
             .descriptor_count = MAX_FRAMES_IN_FLIGHT * SCENE_UNIFORM_COUNT,
         };
-        const pool_sizes = [_]vk.DescriptorPoolSize{ sampler_size, uniform_size };
+        const storage_size = vk.DescriptorPoolSize{
+            .type = .storage_buffer,
+            .descriptor_count = ACTIVE_MATERIAL_COUNT,  // One per skinned material
+        };
+        const pool_sizes = [_]vk.DescriptorPoolSize{ sampler_size, uniform_size, storage_size };
         const pool_info = vk.DescriptorPoolCreateInfo{
+            .flags = .{},  // Add .free_descriptor_set_bit if you need to free individual sets
             .pool_size_count = pool_sizes.len,
             .p_pool_sizes = &pool_sizes,
             .max_sets = MAX_FRAMES_IN_FLIGHT + ACTIVE_MATERIAL_COUNT,
         };
+        std.debug.print("Creating descriptor pool with {d} sampler, {d} uniform, {d} storage descriptors\n", 
+            .{MAX_SAMPLER_COUNT, MAX_FRAMES_IN_FLIGHT * SCENE_UNIFORM_COUNT, ACTIVE_MATERIAL_COUNT});
         self.descriptor_pool = try self.vkd.createDescriptorPool(&pool_info, null);
     }
 

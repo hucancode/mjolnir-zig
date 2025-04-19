@@ -14,10 +14,18 @@ const Scene = @import("scene.zig").Scene;
 const Handle = @import("resource.zig").Handle;
 const Node = @import("../scene/node.zig").Node;
 const NodeType = @import("../scene/node.zig").NodeType;
+const Transform = @import("../scene/node.zig").Transform;
 const AnimationStatus = @import("../geometry/animation.zig").AnimationStatus;
 const AnimationPlayMode = @import("../geometry/animation.zig").AnimationPlayMode;
+const Animation = @import("../geometry/animation.zig").Animation;
+const AnimationTrack = @import("../geometry/animation.zig").AnimationTrack;
+const PositionKeyframe = @import("../geometry/animation.zig").PositionKeyframe;
+const RotationKeyframe = @import("../geometry/animation.zig").RotationKeyframe;
+const ScaleKeyframe = @import("../geometry/animation.zig").ScaleKeyframe;
 const SceneUniform = @import("renderer.zig").SceneUniform;
 const SkeletalMesh = @import("../geometry/skeletal_mesh.zig").SkeletalMesh;
+const SkinnedVertex = @import("../geometry/skeletal_mesh.zig").SkinnedVertex;
+const Bone = @import("../geometry/skeletal_mesh.zig").Bone;
 const Texture = @import("../material/texture.zig").Texture;
 const QueueFamilyIndices = @import("context.zig").QueueFamilyIndices;
 const SwapchainSupport = @import("context.zig").SwapchainSupport;
@@ -195,16 +203,9 @@ pub const Engine = struct {
                 },
                 .skeletal_mesh => |*skeletal_mesh| {
                     if (self.skeletal_meshes.get(skeletal_mesh.handle)) |mesh| {
+                        // TODO: update bone transformation
                         if (self.skinned_materials.get(mesh.material)) |material| {
-                            if (mesh.bone_buffer.mapped) |mapped| {
-                                const bones: [*]zm.Mat = @ptrCast(@alignCast(mapped));
-                                for (mesh.bones, 0..) |bone_handle, i| {
-                                    if (self.nodes.get(bone_handle)) |bone_node| {
-                                        bones[i] = bone_node.transform.toMatrix();
-                                    }
-                                }
-                            }
-                            material.updateBoneBuffer(mesh.bone_buffer.buffer, mesh.bone_buffer.size);
+                            // update bone matrices buffer
                             context.*.vkd.cmdBindPipeline(command_buffer, .graphics, material.pipeline);
                             const descriptor_sets = [_]vk.DescriptorSet{
                                 self.renderer.getDescriptorSet(),
@@ -323,7 +324,7 @@ pub const Engine = struct {
                             // Handle playing in reverse (not implemented in original)
                         },
                     }
-                    track.update(anim.time, &self.nodes, mesh.bones);
+                    track.update(anim.time, mesh.bones);
                 },
                 else => {},
             }
@@ -423,18 +424,18 @@ pub const Engine = struct {
 
     pub fn createSkeletalMesh(
         self: *Engine,
-        vertices: []const SkeletalMesh.Vertex,
+        vertices: []const SkinnedVertex,
         indices: []const u32,
-        bones: []const Handle,
+        bones: []Bone,
         material: Handle,
     ) !Handle {
         const handle = self.skeletal_meshes.malloc();
-        const mesh = try self.skeletal_meshes.get(handle);
-        mesh.vertices_len = vertices.len;
-        mesh.indices_len = indices.len;
+        const mesh = self.skeletal_meshes.get(handle).?;
+        mesh.vertices_len = @intCast(vertices.len);
+        mesh.indices_len = @intCast(indices.len);
         mesh.material = material;
-        mesh.bones = try self.allocator.dupe(Handle, bones);
-        mesh.animations = std.StringHashMap(SkeletalMesh.AnimationTrack).init(self.allocator);
+        mesh.bones = bones;
+        mesh.animations = std.StringHashMap(AnimationTrack).init(self.allocator);
         mesh.vertex_buffer = try context.*.createLocalBuffer(std.mem.sliceAsBytes(vertices), .{ .vertex_buffer_bit = true });
         mesh.index_buffer = try context.*.createLocalBuffer(std.mem.sliceAsBytes(indices), .{ .index_buffer_bit = true });
         if (bones.len > 0) {
@@ -492,13 +493,31 @@ pub const Engine = struct {
     }
     /// Create a new skinned material
     pub fn createSkinnedMaterial(self: *Engine, max_bones: u32) !Handle {
+        std.debug.print("Creating skinned material with max_bones: {d}\n", .{max_bones});
         const handle = self.skinned_materials.malloc();
-        const mat = self.skinned_materials.get(handle) orelse return error.ResourceAllocationFailed;
+        std.debug.print("Got material handle: {any}\n", .{handle});
+
+        const mat = self.skinned_materials.get(handle) orelse {
+            std.debug.print("Failed to get material from handle\n", .{});
+            return error.ResourceAllocationFailed;
+        };
+        std.debug.print("Got material from handle\n", .{});
+
         const vertex_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr/vert.spv").*;
         const fragment_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr/frag.spv").*;
+        std.debug.print("Loaded shader code\n", .{});
+
         mat.max_bones = max_bones;
+        std.debug.print("Set max_bones\n", .{});
+
+        std.debug.print("Initializing descriptor set\n", .{});
         try mat.initDescriptorSet();
+        std.debug.print("Descriptor set initialized\n", .{});
+
+        std.debug.print("Building skinned material\n", .{});
         try buildSkinnedMaterial(self, mat, &vertex_code, &fragment_code);
+        std.debug.print("Skinned material built successfully\n", .{});
+
         return handle;
     }
 
@@ -664,101 +683,270 @@ pub const Engine = struct {
     }
 
     fn processGltfNode(self: *Engine, data: *zcgltf.Data, node: *zcgltf.Node, parent: Handle) !void {
+        std.debug.print("Processing GLTF node (parent handle: {d})\n", .{parent.index});
         const handle = self.initNode();
         const engine_node = self.nodes.get(handle) orelse return;
+
         if (node.has_translation != 0) {
+            std.debug.print("Node has translation\n", .{});
             engine_node.transform.position = zm.loadArr3w(node.translation, 1.0);
         }
         if (node.has_rotation != 0) {
+            std.debug.print("Node has rotation\n", .{});
             engine_node.transform.rotation = zm.loadArr4(node.rotation);
         }
         if (node.has_scale != 0) {
+            std.debug.print("Node has scale\n", .{});
             engine_node.transform.scale = zm.loadArr3w(node.scale, 1.0);
         }
         if (node.has_matrix != 0) {
+            std.debug.print("Node has matrix\n", .{});
             const mat = zm.matFromArr(node.matrix);
             engine_node.transform.fromMatrix(mat);
         }
         if (node.mesh) |mesh| {
-            try self.processGltfMesh(mesh, handle);
+            std.debug.print("Node has mesh\n", .{});
+            try self.processGltfMesh(mesh, handle, data);
         }
+
+        if (node.skin) |skin| {
+            std.debug.print("Node has skin with {d} joints\n", .{skin.joints_count});
+            // Log information about joints
+            for (skin.joints[0..skin.joints_count], 0..) |joint, i| {
+                std.debug.print("Joint {d}: node {any}\n", .{i, joint});
+            }
+            if (skin.inverse_bind_matrices) |matrices| {
+                std.debug.print("Skin has inverse bind matrices, count: {d}\n", .{matrices.count});
+            }
+        }
+
+        std.debug.print("Parenting node {d} to {d}\n", .{handle.index, parent.index});
         self.parentNode(parent, handle);
+
         if (node.children) |children| {
+            std.debug.print("Processing {d} child nodes\n", .{node.children_count});
             for (children[0..node.children_count]) |child| {
                 try self.processGltfNode(data, child, handle);
             }
         }
     }
 
-    fn processGltfMesh(self: *Engine, mesh: *zcgltf.Mesh, node: Handle) !void {
-        const material_handle = try self.createMaterial();
-        const material = self.materials.get(material_handle) orelse return error.ResourceAllocationFailed;
+    fn processGltfMesh(self: *Engine, mesh: *zcgltf.Mesh, node: Handle, data: *zcgltf.Data) !void {
+        std.debug.print("Processing GLTF mesh with {d} primitives\n", .{mesh.primitives_count});
         for (mesh.primitives[0..mesh.primitives_count]) |*primitive| {
-            var vertices = std.ArrayList(Vertex).init(self.allocator);
-            defer vertices.deinit();
-            var indices = std.ArrayList(u32).init(self.allocator);
-            defer indices.deinit();
-            // Process attributes
+            // Detect if mesh has skinning data
+            var has_joints = false;
+            var has_weights = false;
+            std.debug.print("Checking {d} attributes for skinning data\n", .{primitive.attributes_count});
             for (primitive.attributes[0..primitive.attributes_count]) |attribute| {
-                const accessor = attribute.data;
-                if (attribute.type == .position) {
-                    const positions = try self.unpackAccessorFloats(3, accessor);
-                    defer self.allocator.free(positions);
-                    try vertices.resize(@max(positions.len, vertices.items.len));
-                    for (positions, 0..) |pos, i| {
-                        vertices.items[i].position = pos;
-                    }
-                    std.debug.print("loaded {} positions", .{positions.len});
-                } else if (attribute.type == .normal) {
-                    const normals = try self.unpackAccessorFloats(3, accessor);
-                    defer self.allocator.free(normals);
-                    try vertices.resize(@max(normals.len, vertices.items.len));
-                    for (normals, 0..) |normal, i| {
-                        vertices.items[i].normal = normal;
-                    }
-                    std.debug.print("loaded {} normals", .{normals.len});
-                } else if (attribute.type == .texcoord) {
-                    const uvs = try self.unpackAccessorFloats(2, accessor);
-                    defer self.allocator.free(uvs);
-                    try vertices.resize(@max(uvs.len, vertices.items.len));
-                    for (uvs, 0..) |uv, i| {
-                        vertices.items[i].uv = .{ uv[0], uv[1] };
-                    }
-                    std.debug.print("loaded {} uvs", .{uvs.len});
+                if (attribute.type == .joints) {
+                    has_joints = true;
+                    std.debug.print("Found joints attribute\n", .{});
+                } else if (attribute.type == .weights) {
+                    has_weights = true;
+                    std.debug.print("Found weights attribute\n", .{});
                 }
             }
-            if (primitive.indices) |accessor| {
-                const index_count = accessor.count;
-                try indices.resize(index_count);
-                _ = accessor.unpackIndices(indices.items);
+
+            const is_skinned = has_joints and has_weights;
+            std.debug.print("Mesh is {s}\n", .{if (is_skinned) "skinned" else "static"});
+            if (is_skinned) {
+                try self.processSkinnedPrimitive(mesh, primitive, node, data);
+            } else {
+                try self.processStaticPrimitive(mesh, primitive, node);
             }
-            const mesh_handle = try self.createMesh(vertices.items, indices.items, material_handle);
-            if (self.nodes.get(node)) |engine_node| {
-                engine_node.data = .{ .static_mesh = mesh_handle };
+        }
+    }
+
+    fn processStaticPrimitive(self: *Engine, _: *zcgltf.Mesh, primitive: *zcgltf.Primitive, node: Handle) !void {
+        const material_handle = try self.createMaterial();
+        const material = self.materials.get(material_handle) orelse return error.ResourceAllocationFailed;
+        var vertices = std.ArrayList(Vertex).init(self.allocator);
+        defer vertices.deinit();
+        var indices = std.ArrayList(u32).init(self.allocator);
+        defer indices.deinit();
+
+        // Process attributes
+        for (primitive.attributes[0..primitive.attributes_count]) |attribute| {
+            const accessor = attribute.data;
+            if (attribute.type == .position) {
+                const positions = try self.unpackAccessorFloats(3, accessor);
+                defer self.allocator.free(positions);
+                try vertices.resize(@max(positions.len, vertices.items.len));
+                for (positions, 0..) |pos, i| {
+                    vertices.items[i].position = pos;
+                }
+            } else if (attribute.type == .normal) {
+                const normals = try self.unpackAccessorFloats(3, accessor);
+                defer self.allocator.free(normals);
+                try vertices.resize(@max(normals.len, vertices.items.len));
+                for (normals, 0..) |normal, i| {
+                    vertices.items[i].normal = normal;
+                }
+            } else if (attribute.type == .texcoord) {
+                const uvs = try self.unpackAccessorFloats(2, accessor);
+                defer self.allocator.free(uvs);
+                try vertices.resize(@max(uvs.len, vertices.items.len));
+                for (uvs, 0..) |uv, i| {
+                    vertices.items[i].uv = .{ uv[0], uv[1] };
+                }
             }
-            // Load material textures if they exist
-            if (primitive.material) |mtl| {
-                const pbr = mtl.pbr_metallic_roughness;
-                if (pbr.base_color_texture.texture) |tex| {
-                    if (tex.image) |img| {
-                        if (img.uri) |uri| {
-                            const texture_data = try std.fs.cwd().readFileAlloc(self.allocator, std.mem.sliceTo(uri, 0), std.math.maxInt(usize));
-                            defer self.allocator.free(texture_data);
-                            const texture_handle = try self.createTextureFromData(texture_data);
-                            const texture_ptr = self.textures.get(texture_handle).?;
-                            material.albedo = texture_handle;
-                            material.updateTextures(texture_ptr, texture_ptr, texture_ptr);
-                        } else if (img.buffer_view) |buffer_view| {
-                            const buffer =buffer_view.buffer;
-                            const offset = buffer_view.offset;
-                            const size = buffer_view.size;
-                            const data_ptr: [*]u8 = @ptrCast(buffer.data);
-                            const data = data_ptr[offset..offset+size];
-                            const texture_handle = try self.createTextureFromData(data);
-                            const texture_ptr = self.textures.get(texture_handle).?;
-                            material.albedo = texture_handle;
-                            material.updateTextures(texture_ptr, texture_ptr, texture_ptr);
-                        }
+        }
+
+        if (primitive.indices) |accessor| {
+            const index_count = accessor.count;
+            try indices.resize(index_count);
+            _ = accessor.unpackIndices(indices.items);
+        }
+
+        const mesh_handle = try self.createMesh(vertices.items, indices.items, material_handle);
+        if (self.nodes.get(node)) |engine_node| {
+            engine_node.data = .{ .static_mesh = mesh_handle };
+        }
+
+        try self.loadMaterialTextures(primitive, material);
+    }
+
+    fn processSkinnedPrimitive(self: *Engine, _: *zcgltf.Mesh, primitive: *zcgltf.Primitive, node: Handle, data: *zcgltf.Data) !void {
+        std.debug.print("Creating skinned material...\n", .{});
+        const material_handle = try self.createSkinnedMaterial(100); // TODO: Calculate actual bone count
+        var vertices = std.ArrayList(SkinnedVertex).init(self.allocator);
+        defer vertices.deinit();
+        var indices = std.ArrayList(u32).init(self.allocator);
+        defer indices.deinit();
+
+        // Initialize vertices with default values
+        const vertex_count = blk: {
+            for (primitive.attributes[0..primitive.attributes_count]) |attribute| {
+                if (attribute.type == .position) {
+                    break :blk attribute.data.count;
+                }
+            }
+            break :blk 0;
+        };
+        std.debug.print("Initializing {d} vertices with default values\n", .{vertex_count});
+        try vertices.resize(vertex_count);
+        for (vertices.items) |*vertex| {
+            vertex.* = .{
+                .position = .{ 0, 0, 0 },
+                .normal = .{ 0, 0, 1 },
+                .color = .{ 1, 1, 1, 1 },
+                .uv = .{ 0, 0 },
+                .joints = .{ 0, 0, 0, 0 },
+                .weights = .{ 0, 0, 0, 0 },
+            };
+        }
+
+        // Process attributes
+        std.debug.print("Processing {d} vertex attributes\n", .{primitive.attributes_count});
+        for (primitive.attributes[0..primitive.attributes_count]) |attribute| {
+            const accessor = attribute.data;
+            if (attribute.type == .position) {
+                std.debug.print("Processing positions\n", .{});
+                const positions = try self.unpackAccessorFloats(3, accessor);
+                defer self.allocator.free(positions);
+                for (positions, 0..) |pos, i| {
+                    vertices.items[i].position = pos;
+                }
+            } else if (attribute.type == .normal) {
+                std.debug.print("Processing normals\n", .{});
+                const normals = try self.unpackAccessorFloats(3, accessor);
+                defer self.allocator.free(normals);
+                for (normals, 0..) |normal, i| {
+                    vertices.items[i].normal = normal;
+                }
+            } else if (attribute.type == .texcoord) {
+                std.debug.print("Processing UVs\n", .{});
+                const uvs = try self.unpackAccessorFloats(2, accessor);
+                defer self.allocator.free(uvs);
+                for (uvs, 0..) |uv, i| {
+                    vertices.items[i].uv = .{ uv[0], uv[1] };
+                }
+            } else if (attribute.type == .joints) {
+                std.debug.print("Processing joints\n", .{});
+                const joints = try self.unpackAccessorFloats(4, accessor);
+                defer self.allocator.free(joints);
+                for (joints, 0..) |joint, i| {
+                    vertices.items[i].joints = .{
+                        @intFromFloat(joint[0]),
+                        @intFromFloat(joint[1]),
+                        @intFromFloat(joint[2]),
+                        @intFromFloat(joint[3]),
+                    };
+                }
+            } else if (attribute.type == .weights) {
+                std.debug.print("Processing weights\n", .{});
+                const weights = try self.unpackAccessorFloats(4, accessor);
+                defer self.allocator.free(weights);
+                for (weights, 0..) |weight, i| {
+                    vertices.items[i].weights = weight;
+                }
+            }
+        }
+
+        if (primitive.indices) |accessor| {
+            const index_count = accessor.count;
+            std.debug.print("Processing {d} indices\n", .{index_count});
+            try indices.resize(index_count);
+            _ = accessor.unpackIndices(indices.items);
+        }
+
+        // Create bones
+        std.debug.print("Creating bones array\n", .{});
+        const bones = try self.allocator.alloc(Bone, 100); // TODO: Calculate actual bone count
+        for (bones) |*bone| {
+            bone.* = .{
+                .children = std.ArrayList(u32).init(self.allocator),
+                .transform = .{},
+            };
+        }
+
+        std.debug.print("Creating skeletal mesh\n", .{});
+        const mesh_handle = try self.createSkeletalMesh(vertices.items, indices.items, bones, material_handle);
+
+        // Process animations if present
+        std.debug.print("Processing animations\n", .{});
+        try self.processAnimationsForMesh(data, mesh_handle);
+
+        if (self.nodes.get(node)) |engine_node| {
+            std.debug.print("Setting up node data for skeletal mesh\n", .{});
+            engine_node.data = .{ .skeletal_mesh = .{
+                .handle = mesh_handle,
+                .animation = .{
+                    .status = .stopped,
+                    .mode = .loop,
+                    .name = "default",
+                    .time = 0,
+                },
+            }};
+        }
+
+        std.debug.print("Loading material textures\n", .{});
+        try self.loadMaterialTextures(primitive, self.skinned_materials.get(material_handle).?);
+    }
+
+    fn loadMaterialTextures(self: *Engine, primitive: *zcgltf.Primitive, material: anytype) !void {
+        if (primitive.material) |mtl| {
+            const pbr = mtl.pbr_metallic_roughness;
+            if (pbr.base_color_texture.texture) |tex| {
+                if (tex.image) |img| {
+                    if (img.uri) |uri| {
+                        const texture_data = try std.fs.cwd().readFileAlloc(self.allocator, std.mem.sliceTo(uri, 0), std.math.maxInt(usize));
+                        defer self.allocator.free(texture_data);
+                        const texture_handle = try self.createTextureFromData(texture_data);
+                        const texture_ptr = self.textures.get(texture_handle).?;
+                        material.albedo = texture_handle;
+                        material.updateTextures(texture_ptr, texture_ptr, texture_ptr);
+                    } else if (img.buffer_view) |buffer_view| {
+                        const buffer = buffer_view.buffer;
+                        const offset = buffer_view.offset;
+                        const size = buffer_view.size;
+                        const data_ptr: [*]u8 = @ptrCast(buffer.data);
+                        const data = data_ptr[offset..offset+size];
+                        const texture_handle = try self.createTextureFromData(data);
+                        const texture_ptr = self.textures.get(texture_handle).?;
+                        material.albedo = texture_handle;
+                        material.updateTextures(texture_ptr, texture_ptr, texture_ptr);
                     }
                 }
             }
@@ -768,19 +956,181 @@ pub const Engine = struct {
     fn unpackAccessorFloats(self: *Engine, comptime components: usize, accessor: *zcgltf.Accessor) ![][components]f32 {
         const count = accessor.count;
         const float_count = count * components;
+        std.debug.print("Unpacking accessor with {d} elements, {d} components ({d} total floats)\n", .{count, components, float_count});
+
         const floats = try self.allocator.alloc(f32, float_count);
         defer self.allocator.free(floats);
+
         const unpacked_count = accessor.unpackFloats(floats);
+        std.debug.print("Unpacked {d} floats\n", .{unpacked_count.len});
+
         if (unpacked_count.len != count * components) {
+            std.debug.print("ERROR: Unpacked count ({d}) doesn't match expected count ({d})\n", .{unpacked_count.len, count * components});
             return error.InvalidAccessorData;
         }
+
         const result = try self.allocator.alloc([components]f32, count);
+        std.debug.print("Repackaging {d} floats into {d} vectors of size {d}\n", .{float_count, count, components});
+
         for (0..count) |i| {
             for (0..components) |j| {
                 result[i][j] = floats[i * components + j];
             }
         }
         return result;
+    }
+
+    pub fn playAnimation(self: *Engine, node: Handle, name: []const u8, mode: AnimationPlayMode) !void {
+        if (self.nodes.get(node)) |node_ptr| {
+            switch (node_ptr.data) {
+                .skeletal_mesh => |*skeletal_mesh| {
+                    if (self.skeletal_meshes.get(skeletal_mesh.handle)) |mesh| {
+                        if (mesh.animations.get(name)) |_| {
+                            skeletal_mesh.animation.name = name;
+                            skeletal_mesh.animation.mode = mode;
+                            skeletal_mesh.animation.status = .playing;
+                            skeletal_mesh.animation.time = 0;
+                        } else {
+                            return error.AnimationNotFound;
+                        }
+                    }
+                },
+                else => return error.NotASkeletalMesh,
+            }
+        }
+    }
+
+    pub fn pauseAnimation(self: *Engine, node: Handle) !void {
+        if (self.nodes.get(node)) |node_ptr| {
+            switch (node_ptr.data) {
+                .skeletal_mesh => |*skeletal_mesh| {
+                    skeletal_mesh.animation.status = .paused;
+                },
+                else => return error.NotASkeletalMesh,
+            }
+        }
+    }
+
+    pub fn resumeAnimation(self: *Engine, node: Handle) !void {
+        if (self.nodes.get(node)) |node_ptr| {
+            switch (node_ptr.data) {
+                .skeletal_mesh => |*skeletal_mesh| {
+                    skeletal_mesh.animation.status = .playing;
+                },
+                else => return error.NotASkeletalMesh,
+            }
+        }
+    }
+
+    pub fn stopAnimation(self: *Engine, node: Handle) !void {
+        if (self.nodes.get(node)) |node_ptr| {
+            switch (node_ptr.data) {
+                .skeletal_mesh => |*skeletal_mesh| {
+                    skeletal_mesh.animation.status = .stopped;
+                    skeletal_mesh.animation.time = 0;
+                },
+                else => return error.NotASkeletalMesh,
+            }
+        }
+    }
+
+    pub fn setAnimationMode(self: *Engine, node: Handle, mode: AnimationPlayMode) !void {
+        if (self.nodes.get(node)) |node_ptr| {
+            switch (node_ptr.data) {
+                .skeletal_mesh => |*skeletal_mesh| {
+                    skeletal_mesh.animation.mode = mode;
+                },
+                else => return error.NotASkeletalMesh,
+            }
+        }
+    }
+
+    fn processAnimationsForMesh(self: *Engine, data: *zcgltf.Data, mesh_handle: Handle) !void {
+        std.debug.print("Checking for animations in GLTF data\n", .{});
+        if (data.animations) |animations| {
+            std.debug.print("Processing {d} animations\n", .{data.animations_count});
+            for (animations[0..data.animations_count]) |*anim| {
+                var track = AnimationTrack{
+                    .animations = try self.allocator.alloc(Animation, anim.channels_count),
+                    .duration = 0.0,
+                };
+                std.debug.print("Animation '{s}' has {d} channels\n", .{ if (anim.name) |n| std.mem.sliceTo(n, 0) else "unnamed", anim.channels_count });
+
+                for (anim.channels[0..anim.channels_count], 0..) |*channel, i| {
+                    if (channel.target_node) |target_node| {
+                        _ = target_node;
+                        const sampler = channel.sampler;
+                        // Create animation entry
+                        var animation = &track.animations[i];
+                        animation.* = Animation{
+                            .bone_idx = 0, // TODO: use actual bone index here
+                            .positions = &[_]PositionKeyframe{},
+                            .rotations = &[_]RotationKeyframe{},
+                            .scales = &[_]ScaleKeyframe{},
+                        };
+
+                        // Get input times
+                        const input_acc = sampler.input;
+                        std.debug.print("Getting input times for channel {d}\n", .{i});
+                        const times = try self.unpackAccessorFloats(1, input_acc);
+                        defer self.allocator.free(times);
+
+                        // Get output values
+                        const output_acc = sampler.output;
+                        std.debug.print("Processing {s} animation data for channel {d}\n", .{ @tagName(channel.target_path), i });
+                        switch (channel.target_path) {
+                            .translation => {
+                                const positions = try self.unpackAccessorFloats(3, output_acc);
+                                defer self.allocator.free(positions);
+                                var keyframes = try self.allocator.alloc(PositionKeyframe, times.len);
+                                for (times, positions, 0..) |time, pos, frame_idx| {
+                                    keyframes[frame_idx] = .{
+                                        .time = time[0],
+                                        .value = zm.loadArr3w(pos, 1.0),
+                                    };
+                                    track.duration = @max(track.duration, time[0]);
+                                }
+                                animation.positions = keyframes;
+                            },
+                            .rotation => {
+                                const rotations = try self.unpackAccessorFloats(4, output_acc);
+                                defer self.allocator.free(rotations);
+                                var keyframes = try self.allocator.alloc(RotationKeyframe, times.len);
+                                for (times, rotations, 0..) |time, rot, frame_idx| {
+                                    keyframes[frame_idx] = .{
+                                        .time = time[0],
+                                        .value = zm.loadArr4(rot),
+                                    };
+                                    track.duration = @max(track.duration, time[0]);
+                                }
+                                animation.rotations = keyframes;
+                            },
+                            .scale => {
+                                const scales = try self.unpackAccessorFloats(3, output_acc);
+                                defer self.allocator.free(scales);
+                                var keyframes = try self.allocator.alloc(ScaleKeyframe, times.len);
+                                for (times, scales, 0..) |time, scale, frame_idx| {
+                                    keyframes[frame_idx] = .{
+                                        .time = time[0],
+                                        .value = zm.loadArr3w(scale, 1.0),
+                                    };
+                                    track.duration = @max(track.duration, time[0]);
+                                }
+                                animation.scales = keyframes;
+                            },
+                            else => {},
+                        }
+                    }
+                }
+
+                // Add animation track to mesh
+                if (self.skeletal_meshes.get(mesh_handle)) |mesh| {
+                    const name = if (anim.name) |n| std.mem.sliceTo(n, 0) else "default";
+                    std.debug.print("Adding animation track '{s}' to mesh\n", .{name});
+                    try mesh.animations.put(name, track);
+                }
+            }
+        }
     }
 };
 
