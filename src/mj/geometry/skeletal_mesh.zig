@@ -108,11 +108,11 @@ pub const SkeletalMesh = struct {
         };
     }
 
-    pub fn deinit(self: *SkeletalMesh, context: *VulkanContext) void {
-        self.vertex_buffer.deinit(context);
-        self.index_buffer.deinit(context);
+    pub fn deinit(self: *SkeletalMesh) void {
+        self.vertex_buffer.deinit();
+        self.index_buffer.deinit();
         if (self.bones.len > 0) {
-            self.bone_buffer.deinit(context);
+            self.bone_buffer.deinit();
         }
         var animation_iter = self.animations.iterator();
         while (animation_iter.next()) |entry| {

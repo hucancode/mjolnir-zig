@@ -2,7 +2,7 @@ const std = @import("std");
 const vk = @import("vulkan");
 const Allocator = std.mem.Allocator;
 
-const VulkanContext = @import("../engine/context.zig").VulkanContext;
+const context = @import("../engine/context.zig").get();
 const DataBuffer = @import("../engine/data_buffer.zig").DataBuffer;
 const Handle = @import("../engine/resource.zig").Handle;
 
@@ -63,13 +63,12 @@ pub const StaticMesh = struct {
     vertex_buffer: DataBuffer,
     index_buffer: DataBuffer,
 
-    pub fn deinit(self: *StaticMesh, context: *VulkanContext) void {
-        self.vertex_buffer.deinit(context);
-        self.index_buffer.deinit(context);
+    pub fn deinit(self: *StaticMesh) void {
+        self.vertex_buffer.deinit();
+        self.index_buffer.deinit();
     }
     pub fn buildMesh(
         self: *StaticMesh,
-        context: *VulkanContext,
         vertices: []const Vertex,
         indices: []const u32,
         material: Handle,
@@ -78,14 +77,13 @@ pub const StaticMesh = struct {
         self.vertices_len = @intCast(vertices.len);
         self.indices_len = @intCast(indices.len);
         std.debug.print("Building mesh with {d} vertices {d} indices\n", .{ vertices.len, indices.len });
-        self.vertex_buffer = try context.createLocalBuffer(std.mem.sliceAsBytes(vertices), .{ .vertex_buffer_bit = true });
-        self.index_buffer = try context.createLocalBuffer(std.mem.sliceAsBytes(indices), .{ .index_buffer_bit = true });
+        self.vertex_buffer = try context.*.createLocalBuffer(std.mem.sliceAsBytes(vertices), .{ .vertex_buffer_bit = true });
+        self.index_buffer = try context.*.createLocalBuffer(std.mem.sliceAsBytes(indices), .{ .index_buffer_bit = true });
         std.debug.print("Mesh indices and vertices built\n", .{});
     }
     /// Build a cube mesh
     pub fn buildCube(
         self: *StaticMesh,
-        context: *VulkanContext,
         material: Handle,
         color: [4]f32,
     ) !void {
@@ -160,6 +158,6 @@ pub const StaticMesh = struct {
             20, 21, 22, 22, 23, 20,
         };
 
-        try self.buildMesh(context, &vertices, &indices, material);
+        try self.buildMesh(&vertices, &indices, material);
     }
 };

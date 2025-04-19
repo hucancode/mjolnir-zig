@@ -3,7 +3,7 @@ const zm = @import("zmath");
 const vk = @import("vulkan");
 const Allocator = std.mem.Allocator;
 
-const VulkanContext = @import("../engine/context.zig").VulkanContext;
+const context = @import("../engine/context.zig").get();
 const Handle = @import("../engine/resource.zig").Handle;
 const Texture = @import("texture.zig").Texture;
 const Engine = @import("../engine/engine.zig").Engine;
@@ -36,7 +36,7 @@ pub const SkinnedMaterial = struct {
         };
     }
 
-    pub fn initDescriptorSet(self: *SkinnedMaterial, context: *VulkanContext) !void {
+    pub fn initDescriptorSet(self: *SkinnedMaterial) !void {
         // Create descriptor set layout with bindings for textures and bones
         const albedo_binding = vk.DescriptorSetLayoutBinding{
             .binding = 0,
@@ -72,17 +72,17 @@ pub const SkinnedMaterial = struct {
             .binding_count = bindings.len,
             .p_bindings = &bindings,
         };
-        self.descriptor_set_layout = try context.vkd.createDescriptorSetLayout(&layout_info, null);
+        self.descriptor_set_layout = try context.*.vkd.createDescriptorSetLayout(&layout_info, null);
         // Allocate descriptor set
         const alloc_info = vk.DescriptorSetAllocateInfo{
-            .descriptor_pool = context.descriptor_pool,
+            .descriptor_pool = context.*.descriptor_pool,
             .descriptor_set_count = 1,
             .p_set_layouts = @ptrCast(&self.descriptor_set_layout),
         };
-        try context.vkd.allocateDescriptorSets(&alloc_info, &self.descriptor_set);
+        try context.*.vkd.allocateDescriptorSets(&alloc_info, &self.descriptor_set);
     }
 
-    pub fn updateTextures(self: *SkinnedMaterial, context: *VulkanContext, albedo: *Texture, metallic: *Texture, roughness: *Texture) void {
+    pub fn updateTextures(self: *SkinnedMaterial, albedo: *Texture, metallic: *Texture, roughness: *Texture) void {
         // Create image info structures for all textures
         const image_infos = [_]vk.DescriptorImageInfo{
             // Albedo
@@ -141,10 +141,10 @@ pub const SkinnedMaterial = struct {
             },
         };
         // Update descriptors
-        context.vkd.updateDescriptorSets(writes.len, &writes, 0, undefined);
+        context.*.vkd.updateDescriptorSets(writes.len, &writes, 0, undefined);
     }
 
-    pub fn updateBoneBuffer(self: *SkinnedMaterial, context: *VulkanContext, buffer: vk.Buffer, size: usize) void {
+    pub fn updateBoneBuffer(self: *SkinnedMaterial, buffer: vk.Buffer, size: usize) void {
         // Create buffer info
         const buffer_info = vk.DescriptorBufferInfo{
             .buffer = buffer,
@@ -163,24 +163,24 @@ pub const SkinnedMaterial = struct {
             .p_texel_buffer_view = undefined,
         };
         // Update descriptor
-        context.vkd.updateDescriptorSets(1, @ptrCast(&write), 0, undefined);
+        context.*.vkd.updateDescriptorSets(1, @ptrCast(&write), 0, undefined);
     }
 
-    pub fn deinit(self: *SkinnedMaterial, context: *VulkanContext) void {
-        context.vkd.destroyPipeline(self.pipeline, null);
-        context.vkd.destroyPipelineLayout(self.pipeline_layout, null);
-        context.vkd.destroyDescriptorSetLayout(self.descriptor_set_layout, null);
+    pub fn deinit(self: *SkinnedMaterial) void {
+        context.*.vkd.destroyPipeline(self.pipeline, null);
+        context.*.vkd.destroyPipelineLayout(self.pipeline_layout, null);
+        context.*.vkd.destroyDescriptorSetLayout(self.descriptor_set_layout, null);
     }
 };
 
 /// Build a skinned material pipeline
 pub fn buildSkinnedMaterial(self: *Engine, mat: *SkinnedMaterial, vertex_code: []align(@alignOf(u32)) const u8, fragment_code: []align(@alignOf(u32)) const u8) !void {
     // Create shader modules
-    const vert_shader = try self.context.createShaderModule(vertex_code);
-    defer self.context.vkd.destroyShaderModule(vert_shader, null);
+    const vert_shader = try context.*.createShaderModule(vertex_code);
+    defer context.*.vkd.destroyShaderModule(vert_shader, null);
 
-    const frag_shader = try self.context.createShaderModule(fragment_code);
-    defer self.context.vkd.destroyShaderModule(frag_shader, null);
+    const frag_shader = try self.context.*.createShaderModule(fragment_code);
+    defer context.*.vkd.destroyShaderModule(frag_shader, null);
 
     // Create shader stages
     const shader_stages = [_]vk.PipelineShaderStageCreateInfo{
@@ -302,7 +302,7 @@ pub fn buildSkinnedMaterial(self: *Engine, mat: *SkinnedMaterial, vertex_code: [
         .p_push_constant_ranges = @ptrCast(&push_constant),
     };
 
-    mat.pipeline_layout = try self.context.vkd.createPipelineLayout(&layout_info, null);
+    mat.pipeline_layout = try self.context.*.vkd.createPipelineLayout(&layout_info, null);
 
     const rendering_info = vk.PipelineRenderingCreateInfoKHR{
         .color_attachment_count = 1,
@@ -331,7 +331,7 @@ pub fn buildSkinnedMaterial(self: *Engine, mat: *SkinnedMaterial, vertex_code: [
 
     // Create pipeline
     var pipeline: vk.Pipeline = undefined;
-    _ = try self.context.vkd.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_info), null, @ptrCast(&pipeline));
+    _ = try self.context.*.vkd.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_info), null, @ptrCast(&pipeline));
 
     mat.pipeline = pipeline;
 }
