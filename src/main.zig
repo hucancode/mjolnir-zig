@@ -33,9 +33,9 @@ fn setup(e: *mj.Engine) !void {
     const material_ptr = e.materials.get(material).?;
     material_ptr.updateTextures(&e.context, texture_ptr, texture_ptr, texture_ptr);
     const mesh = try e.createCube(material);
-    e.scene.camera.position = .{ 0.0, 0.0, -15.0, 0.0 };
+    e.scene.camera.position = .{ 0.0, 10.0, -15.0, 0.0 };
     e.scene.camera.lookAt(.{ 0.0, 2.5, -5.0, 0.0 });
-    try e.loadGltf("assets/Duck.glb");
+    try e.loadGltf("assets/mjolnir_thors_hammer.glb");
     for (0..light.len) |i| {
         const color: zm.Vec = .{
             std.math.sin(@as(f32, @floatFromInt(i))),
