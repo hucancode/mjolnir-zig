@@ -3,6 +3,7 @@ const vk = @import("vulkan");
 const glfw = @import("zglfw");
 const zm = @import("zmath");
 const zstbi = @import("zstbi");
+const zcgltf = @import("zmesh").io.zcgltf;
 
 const Allocator = std.mem.Allocator;
 const Time = std.time.Instant;
@@ -22,18 +23,21 @@ const Texture = @import("../material/texture.zig").Texture;
 const QueueFamilyIndices = @import("context.zig").QueueFamilyIndices;
 const SwapchainSupport = @import("context.zig").SwapchainSupport;
 const StaticMesh = @import("../geometry/static_mesh.zig").StaticMesh;
+const Vertex = @import("../geometry/static_mesh.zig").Vertex;
 const Material = @import("../material/pbr.zig").Material;
 const SkinnedMaterial = @import("../material/skinned_pbr.zig").SkinnedMaterial;
 const Light = @import("../scene/light.zig").Light;
 const ResourcePool = @import("resource.zig").ResourcePool;
+const LightUniform = @import("renderer.zig").LightUniform;
 
 const buildMaterial = @import("../material/pbr.zig").buildMaterial;
 const buildSkinnedMaterial = @import("../material/skinned_pbr.zig").buildSkinnedMaterial;
 
+const MAX_LIGHTS = @import("renderer.zig").MAX_LIGHTS;
 const RENDER_FPS = 60.0;
 const FRAME_TIME = 1.0 / RENDER_FPS;
 const FRAME_TIME_NANO: u64 = @intFromFloat(FRAME_TIME * 1_000_000_000.0);
-const UPDATE_FPS = 24.0;
+const UPDATE_FPS = 60.0;
 const UPDATE_FRAME_TIME = 1.0 / UPDATE_FPS;
 const UPDATE_FRAME_TIME_NANO: u64 = @intFromFloat(UPDATE_FRAME_TIME * 1_000_000_000.0);
 
@@ -134,20 +138,8 @@ pub const Engine = struct {
         }
     }
 
-    pub fn pushSceneUniform(self: *Engine) void {
-        const now = Time.now() catch return;
-        const elapsed_seconds = @as(f64, @floatFromInt(now.since(self.start_timestamp))) / 1000_000_000.0;
-        const data = SceneUniform {
-            .view = self.scene.viewMatrix(),
-            .projection = self.scene.projectionMatrix(),
-            .time = @floatCast(elapsed_seconds),
-        };
-        self.renderer.getUniform().write(std.mem.asBytes(&data));
-    }
-
     pub fn tryRender(self: *Engine) !void {
         const image_idx = try self.renderer.begin(&self.context);
-        self.pushSceneUniform();
         const command_buffer = self.renderer.getCommandBuffer();
         var node_stack = ArrayList(Handle).init(self.allocator);
         defer node_stack.deinit();
@@ -159,16 +151,47 @@ pub const Engine = struct {
                 try transform_stack.append(zm.identity());
             }
         }
-        // Process nodes depth-first
+        var scene_uniform = SceneUniform {
+            .view = self.scene.viewMatrix(),
+            .projection = self.scene.projectionMatrix(),
+            .lights = undefined,
+        };
+        if (Time.now()) |now| {
+            const elapsed_seconds = @as(f64, @floatFromInt(now.since(self.start_timestamp))) / 1000_000_000.0;
+            scene_uniform.time = @floatCast(elapsed_seconds);
+        } else |err| {
+            std.debug.print("{}", .{err});
+        }
         while (node_stack.items.len > 0) {
             const handle = node_stack.pop() orelse break;
             const node = self.nodes.get(handle) orelse continue;
             const local_matrix = node.transform.toMatrix();
             const world_matrix = zm.mul(local_matrix, transform_stack.pop() orelse zm.identity());
             switch (node.data) {
-                .light => |*light| {
-                    //std.debug.print("light {}", {.light});
-                    _ = light;
+                .light => |light| {
+                    if (self.lights.get(light)) |light_ptr| {
+                        var light_uniform = LightUniform {
+                            .color = light_ptr.color,
+                        };
+                        switch (light_ptr.data) {
+                            .point => {
+                                light_uniform.kind = 0;
+                                light_uniform.position = zm.mul(zm.f32x4(0.0, 0.0, 0.0, 1.0), world_matrix);
+                                //std.debug.print("light uniform = {any}\n", .{light_uniform});
+                            },
+                            .directional => {
+                                light_uniform.kind = 1;
+                                light_uniform.direction = zm.mul(zm.f32x4(0.0, 0.0, 1.0, 1.0), world_matrix);
+                            },
+                            .spot => |angle|{
+                                light_uniform.kind = 2;
+                                light_uniform.angle = angle;
+                                light_uniform.position = zm.mul(zm.f32x4(0.0, 0.0, 0.0, 1.0), world_matrix);
+                                light_uniform.direction = zm.mul(zm.f32x4(0.0, 0.0, 1.0, 1.0), world_matrix);
+                            },
+                        }
+                        scene_uniform.pushLight(light_uniform);
+                    }
                 },
                 .skeletal_mesh => |*skeletal_mesh| {
                     if (self.skeletal_meshes.get(skeletal_mesh.handle)) |mesh| {
@@ -182,14 +205,12 @@ pub const Engine = struct {
                                 }
                             }
                             material.updateBoneBuffer(&self.context, mesh.bone_buffer.buffer, mesh.bone_buffer.size);
-                            // Bind pipeline and descriptors
                             self.context.vkd.cmdBindPipeline(command_buffer, .graphics, material.pipeline);
                             const descriptor_sets = [_]vk.DescriptorSet{
                                 self.renderer.getDescriptorSet(),
                                 material.descriptor_set,
                             };
                             self.context.vkd.cmdBindDescriptorSets(command_buffer, .graphics, material.pipeline_layout, 0, descriptor_sets.len, &descriptor_sets, 0, undefined);
-                            // Push world matrix as a constant
                             self.context.vkd.cmdPushConstants(command_buffer, material.pipeline_layout, .{ .vertex_bit = true }, 0, @sizeOf(zm.Mat), &world_matrix);
                             const offset: vk.DeviceSize = 0;
                             self.context.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&mesh.vertex_buffer.buffer), @ptrCast(&offset));
@@ -218,14 +239,15 @@ pub const Engine = struct {
                 .none => {},
             }
             for (node.children.items) |child| {
-                if (child.index == self.scene.root.index) {
-                    std.debug.print("A node can't have root node as a child {d} {d}\n", .{ handle.index, handle.generation });
-                    continue;
-                }
+                // if (child.index == self.scene.root.index) {
+                //     std.debug.print("A node can't have root node as a child {d} {d}\n", .{ handle.index, handle.generation });
+                //     continue;
+                // }
                 try node_stack.append(child);
                 try transform_stack.append(world_matrix);
             }
         }
+        self.renderer.getUniform().write(std.mem.asBytes(&scene_uniform));
         try self.renderer.end(&self.context, image_idx);
     }
 
@@ -307,6 +329,45 @@ pub const Engine = struct {
             }
         }
         self.last_update_timestamp = Time.now() catch return true;
+
+        // Camera Controls
+        const move_speed: f32 = 2.0; // Units per second
+        //const rotate_speed: f32 = 1.0; // Radians per second
+        const window = self.window;
+
+        // Movement
+        if (glfw.getKey(window, glfw.Key.w) == glfw.Action.press) {
+            self.scene.camera.position[2] += move_speed * delta_time;
+        }
+        if (glfw.getKey(window, glfw.Key.s) == glfw.Action.press) {
+            self.scene.camera.position[2] -=  move_speed * delta_time;
+        }
+        if (glfw.getKey(window, glfw.Key.a) == glfw.Action.press) {
+            self.scene.camera.position[0] -= move_speed * delta_time;
+        }
+        if (glfw.getKey(window, glfw.Key.d) == glfw.Action.press) {
+            self.scene.camera.position[0] += move_speed * delta_time;
+        }
+        if (glfw.getKey(window, glfw.Key.z) == glfw.Action.press) {
+            self.scene.camera.position[1] -= move_speed * delta_time;
+        }
+        if (glfw.getKey(window, glfw.Key.x) == glfw.Action.press) {
+            self.scene.camera.position[1] += move_speed * delta_time;
+        }
+
+        // Rotation
+        // if (glfw.getKey(window, glfw.Key.left) == glfw.Action.press) {
+        //     self.scene.camera.rotation = zm.qmul(self.scene.camera.rotation, zm.quatFromAxisAngle(self.scene.camera.up, -std.math.pi*rotate_speed*delta_time));
+        // }
+        // if (glfw.getKey(window, glfw.Key.right) == glfw.Action.press) {
+        //     self.scene.camera.rotation = zm.qmul(self.scene.camera.rotation, zm.quatFromAxisAngle(self.scene.camera.up, std.math.pi*rotate_speed*delta_time));
+        // }
+        // if (glfw.getKey(window, glfw.Key.up) == glfw.Action.press) {
+        //     self.scene.camera.rotation = zm.qmul(self.scene.camera.rotation, zm.quatFromAxisAngle(self.scene.camera.right(), -std.math.pi*rotate_speed*delta_time));
+        // }
+        // if (glfw.getKey(window, glfw.Key.down) == glfw.Action.press) {
+        //     self.scene.camera.rotation = zm.qmul(self.scene.camera.rotation, zm.quatFromAxisAngle(self.scene.camera.right(), std.math.pi*rotate_speed*delta_time));
+        // }
         return true;
     }
 
@@ -421,8 +482,8 @@ pub const Engine = struct {
     pub fn createMaterial(self: *Engine) !Handle {
         const handle = self.materials.malloc();
         const mat = self.materials.get(handle) orelse return error.ResourceAllocationFailed;
-        const vertex_code align(@alignOf(u32)) = @embedFile("shaders/pbr.vert.spv").*;
-        const fragment_code align(@alignOf(u32)) = @embedFile("shaders/pbr.frag.spv").*;
+        const vertex_code align(@alignOf(u32)) = @embedFile("shaders/pbr/vert.spv").*;
+        const fragment_code align(@alignOf(u32)) = @embedFile("shaders/pbr/frag.spv").*;
         try mat.initDescriptorSet(&self.context);
         std.debug.print("Material descriptor set initialized\n", .{});
         try buildMaterial(self, mat, &vertex_code, &fragment_code);
@@ -433,17 +494,41 @@ pub const Engine = struct {
     pub fn createSkinnedMaterial(self: *Engine, max_bones: u32) !Handle {
         const handle = self.skinned_materials.malloc();
         const mat = self.skinned_materials.get(handle) orelse return error.ResourceAllocationFailed;
-        const vertex_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr.vert.spv").*;
-        const fragment_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr.frag.spv").*;
+        const vertex_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr/vert.spv").*;
+        const fragment_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr/frag.spv").*;
         mat.max_bones = max_bones;
         try mat.initDescriptorSet(&self.context);
         try buildSkinnedMaterial(self, mat, &vertex_code, &fragment_code);
         return handle;
     }
+
     pub fn createCube(self: *Engine, material: Handle) !Handle {
         const ret = self.meshes.malloc();
         const mesh_ptr = self.meshes.get(ret).?;
         try mesh_ptr.buildCube(&self.context, material, .{ 0.0, 0.0, 0.0, 0.0 });
+        return ret;
+    }
+
+    pub fn createMesh(self: *Engine, vertices: []const Vertex, indices: []const u32, material: Handle) !Handle {
+        const ret = self.meshes.malloc();
+        const mesh_ptr = self.meshes.get(ret).?;
+        try mesh_ptr.buildMesh(&self.context, vertices, indices, material);
+        return ret;
+    }
+
+    pub fn createPointLight(self: *Engine, color: zm.Vec) Handle {
+        const ret = self.lights.malloc();
+        const light_ptr = self.lights.get(ret).?;
+        light_ptr.data = .point;
+        light_ptr.color = color;
+        return ret;
+    }
+
+    pub fn createDirectionalLight(self: *Engine, color: zm.Vec) Handle {
+        const ret = self.lights.malloc();
+        const light_ptr = self.lights.get(ret).?;
+        light_ptr.data = .directional;
+        light_ptr.color = color;
         return ret;
     }
 
@@ -562,6 +647,140 @@ pub const Engine = struct {
         parent_node.children.append(child) catch |err| {
             std.debug.print("Failed to append child to parent: {any}\n", .{err});
         };
+    }
+
+    pub fn loadGltf(self: *Engine, path: [:0]const u8) !void {
+        const options = zcgltf.Options{};
+        const data = try zcgltf.parseFile(options, path);
+        defer zcgltf.free(data);
+        if (data.buffers_count > 0) {
+            try zcgltf.loadBuffers(options, data, path);
+        }
+        if (data.nodes) |nodes| {
+            for (nodes[0..data.nodes_count]) |*node| {
+                try self.processGltfNode(data, node, self.scene.root);
+            }
+        }
+    }
+
+    fn processGltfNode(self: *Engine, data: *zcgltf.Data, node: *zcgltf.Node, parent: Handle) !void {
+        const handle = self.initNode();
+        const engine_node = self.nodes.get(handle) orelse return;
+        if (node.has_translation != 0) {
+            engine_node.transform.position = zm.loadArr3w(node.translation, 1.0);
+        }
+        if (node.has_rotation != 0) {
+            engine_node.transform.rotation = zm.loadArr4(node.rotation);
+        }
+        if (node.has_scale != 0) {
+            engine_node.transform.scale = zm.loadArr3w(node.scale, 1.0);
+        }
+        if (node.has_matrix != 0) {
+            const mat = zm.matFromArr(node.matrix);
+            engine_node.transform.fromMatrix(mat);
+        }
+        if (node.mesh) |mesh| {
+            try self.processGltfMesh(mesh, handle);
+        }
+        self.parentNode(parent, handle);
+        if (node.children) |children| {
+            for (children[0..node.children_count]) |child| {
+                try self.processGltfNode(data, child, handle);
+            }
+        }
+    }
+
+    fn processGltfMesh(self: *Engine, mesh: *zcgltf.Mesh, node: Handle) !void {
+        const material_handle = try self.createMaterial();
+        const material = self.materials.get(material_handle) orelse return error.ResourceAllocationFailed;
+        for (mesh.primitives[0..mesh.primitives_count]) |*primitive| {
+            var vertices = std.ArrayList(Vertex).init(self.allocator);
+            defer vertices.deinit();
+            var indices = std.ArrayList(u32).init(self.allocator);
+            defer indices.deinit();
+            // Process attributes
+            for (primitive.attributes[0..primitive.attributes_count]) |attribute| {
+                const accessor = attribute.data;
+                if (attribute.type == .position) {
+                    const positions = try self.unpackAccessorFloats(3, accessor);
+                    defer self.allocator.free(positions);
+                    try vertices.resize(@max(positions.len, vertices.items.len));
+                    for (positions, 0..) |pos, i| {
+                        vertices.items[i].position = pos;
+                    }
+                    std.debug.print("loaded {} positions", .{positions.len});
+                } else if (attribute.type == .normal) {
+                    const normals = try self.unpackAccessorFloats(3, accessor);
+                    defer self.allocator.free(normals);
+                    try vertices.resize(@max(normals.len, vertices.items.len));
+                    for (normals, 0..) |normal, i| {
+                        vertices.items[i].normal = normal;
+                    }
+                    std.debug.print("loaded {} normals", .{normals.len});
+                } else if (attribute.type == .texcoord) {
+                    const uvs = try self.unpackAccessorFloats(2, accessor);
+                    defer self.allocator.free(uvs);
+                    try vertices.resize(@max(uvs.len, vertices.items.len));
+                    for (uvs, 0..) |uv, i| {
+                        vertices.items[i].uv = .{ uv[0], uv[1] };
+                    }
+                    std.debug.print("loaded {} uvs", .{uvs.len});
+                }
+            }
+            if (primitive.indices) |accessor| {
+                const index_count = accessor.count;
+                try indices.resize(index_count);
+                _ = accessor.unpackIndices(indices.items);
+            }
+            const mesh_handle = try self.createMesh(vertices.items, indices.items, material_handle);
+            if (self.nodes.get(node)) |engine_node| {
+                engine_node.data = .{ .static_mesh = mesh_handle };
+            }
+            // Load material textures if they exist
+            if (primitive.material) |mtl| {
+                const pbr = mtl.pbr_metallic_roughness;
+                if (pbr.base_color_texture.texture) |tex| {
+                    if (tex.image) |img| {
+                        if (img.uri) |uri| {
+                            const texture_data = try std.fs.cwd().readFileAlloc(self.allocator, std.mem.sliceTo(uri, 0), std.math.maxInt(usize));
+                            defer self.allocator.free(texture_data);
+                            const texture_handle = try self.createTexture(texture_data);
+                            const texture_ptr = self.textures.get(texture_handle).?;
+                            material.albedo = texture_handle;
+                            material.updateTextures(&self.context, texture_ptr, texture_ptr, texture_ptr);
+                        } else if (img.buffer_view) |buffer_view| {
+                            const buffer =buffer_view.buffer;
+                            const offset = buffer_view.offset;
+                            const size = buffer_view.size;
+                            const data_ptr: [*]u8 = @ptrCast(buffer.data);
+                            const data = data_ptr[offset..offset+size];
+                            const texture_handle = try self.createTexture(data);
+                            const texture_ptr = self.textures.get(texture_handle).?;
+                            material.albedo = texture_handle;
+                            material.updateTextures(&self.context, texture_ptr, texture_ptr, texture_ptr);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn unpackAccessorFloats(self: *Engine, comptime components: usize, accessor: *zcgltf.Accessor) ![][components]f32 {
+        const count = accessor.count;
+        const float_count = count * components;
+        const floats = try self.allocator.alloc(f32, float_count);
+        defer self.allocator.free(floats);
+        const unpacked_count = accessor.unpackFloats(floats);
+        if (unpacked_count.len != count * components) {
+            return error.InvalidAccessorData;
+        }
+        const result = try self.allocator.alloc([components]f32, count);
+        for (0..count) |i| {
+            for (0..components) |j| {
+                result[i][j] = floats[i * components + j];
+            }
+        }
+        return result;
     }
 };
 

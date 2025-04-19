@@ -2,7 +2,7 @@
 
 Mjolnir is a rendering engine based on Vulkan API.
 
-![](./readme/cube.gif)
+![](./readme/duck.gif)
 
 # Work in progress
 
