@@ -47,7 +47,7 @@ fn setup(e: *mj.Engine) !void {
         e.addToRoot(light[i]);
         light_cube[i] = e.createMeshNode(mesh);
         const light_cube_ptr = e.nodes.get(light_cube[i]).?;
-        light_cube_ptr.transform.scale = zm.f32x4s(0.1*@as(f32, @floatFromInt(i)) + 0.2);
+        light_cube_ptr.transform.scale = zm.f32x4s(0.2*@as(f32, @floatFromInt(i)) + 0.4);
         e.parentNode(light[i], light_cube[i]);
     }
     const sunlight = e.createLightNode(e.createDirectionalLight(.{0.01, 0.01, 0.01, 0.0}));
