@@ -31,6 +31,7 @@ pub const SkinnedVertex = struct {
 pub const Bone = struct {
     children: std.ArrayList(u32),
     transform: Transform,
+    inverse_bind_matrix: zm.Mat,
 };
 
 /// Vertex input binding description for skinned vertices
@@ -119,11 +120,36 @@ pub const SkeletalMesh = struct {
     }
 
     pub fn update(self: *SkeletalMesh) !void {
-        // TODO: update animations, etc
-        if (self.bone_buffer.mapped) |raw_ptr| {
-            const ptr: *[self.bones.len]zm.Mat = @ptrCast(raw_ptr);
-            for (self.bones, 0..) |bone, i| {
-                ptr[i] = bone.transform.toMatrix();
+        if (self.bones.len == 0) return;
+        var transform_stack = std.ArrayList(zm.Mat).init(self.allocator);
+        defer transform_stack.deinit();
+        var bone_stack = std.ArrayList(u32).init(self.allocator);
+        defer bone_stack.deinit();
+        // Start with the root bone (bone[0])
+        try bone_stack.append(0);
+        try transform_stack.append(zm.identity());
+        // Get pointer to bone matrices in GPU buffer
+        const matrices: *[*]zm.Mat = if (self.bone_buffer.mapped) |raw_ptr|
+            @ptrCast(raw_ptr)
+        else
+            return;
+
+        while (bone_stack.items.len > 0) {
+            const bone_idx = bone_stack.pop();
+            const bone = &self.bones[bone_idx];
+            const parent_transform = transform_stack.pop() orelse zm.identity();
+
+            // Calculate world transform for this bone
+            const local_transform = bone.transform.toMatrix();
+            const world_transform = zm.mul(local_transform, parent_transform);
+
+            // Calculate final matrix for skinning (includes inverse bind pose)
+            matrices.*[bone_idx] = zm.mul(world_transform, bone.inverse_bind_matrix);
+
+            // Push children onto the stack
+            for (bone.children.items) |child_idx| {
+                try bone_stack.append(child_idx);
+                try transform_stack.append(world_transform);
             }
         }
     }
@@ -139,6 +165,9 @@ pub const SkeletalMesh = struct {
             entry.value_ptr.deinit(self.allocator);
         }
         self.animations.deinit();
+        for (self.bones) |*bone| {
+            bone.children.deinit();
+        }
         self.allocator.free(self.bones);
     }
 };

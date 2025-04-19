@@ -712,12 +712,38 @@ pub const Engine = struct {
         if (node.skin) |skin| {
             std.debug.print("Node has skin with {d} joints\n", .{skin.joints_count});
             // Log information about joints
-            for (skin.joints[0..skin.joints_count], 0..) |joint, i| {
-                std.debug.print("Joint {d}: node {any}\n", .{i, joint});
+            const bones = try self.allocator.alloc(Bone, skin.joints_count);
+            for (bones) |*bone| {
+                bone.* = .{
+                    .children = std.ArrayList(u32).init(self.allocator),
+                    .transform = .{},
+                    .inverse_bind_matrix = zm.identity(),  // Initialize with identity
+                };
             }
+
+            // If inverse bind matrices are available in the skin data
             if (skin.inverse_bind_matrices) |matrices| {
-                std.debug.print("Skin has inverse bind matrices, count: {d}\n", .{matrices.count});
+                // Load inverse bind matrices from accessor
+                const inverse_matrices = try self.unpackAccessorFloats(16, matrices);
+                defer self.allocator.free(inverse_matrices);
+
+                // Copy matrices to bones
+                for (inverse_matrices, 0..) |*matrix, i| {
+                    bones[i].inverse_bind_matrix = zm.loadMat(matrix);
+                }
             }
+
+            // Set up bone hierarchy using skin.joints
+            for (skin.joints[0..skin.joints_count], 0..) |joint, i| {
+                if (joint.children) |children| {
+                    for (children[0..joint.children_count]) |child| {
+                        const j = 0; // TODO: find actual index of child in the array
+                        _ = child;
+                        try bones[i].children.append(j);
+                    }
+                }
+            }
+            // TODO: gives this bone list to skeletal mesh
         }
 
         std.debug.print("Parenting node {d} to {d}\n", .{handle.index, parent.index});
@@ -898,6 +924,7 @@ pub const Engine = struct {
             bone.* = .{
                 .children = std.ArrayList(u32).init(self.allocator),
                 .transform = .{},
+                .inverse_bind_matrix = zm.identity(),
             };
         }
 
