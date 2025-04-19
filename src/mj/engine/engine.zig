@@ -692,6 +692,7 @@ pub const Engine = struct {
 
     fn processGltfMesh(self: *Engine, mesh: *zcgltf.Mesh, node: Handle) !void {
         const material_handle = try self.createMaterial();
+        const material = self.materials.get(material_handle) orelse return error.ResourceAllocationFailed;
         for (mesh.primitives[0..mesh.primitives_count]) |*primitive| {
             var vertices = std.ArrayList(Vertex).init(self.allocator);
             defer vertices.deinit();
@@ -734,6 +735,32 @@ pub const Engine = struct {
             const mesh_handle = try self.createMesh(vertices.items, indices.items, material_handle);
             if (self.nodes.get(node)) |engine_node| {
                 engine_node.data = .{ .static_mesh = mesh_handle };
+            }
+            // Load material textures if they exist
+            if (primitive.material) |mtl| {
+                const pbr = mtl.pbr_metallic_roughness;
+                if (pbr.base_color_texture.texture) |tex| {
+                    if (tex.image) |img| {
+                        if (img.uri) |uri| {
+                            const texture_data = try std.fs.cwd().readFileAlloc(self.allocator, std.mem.sliceTo(uri, 0), std.math.maxInt(usize));
+                            defer self.allocator.free(texture_data);
+                            const texture_handle = try self.createTexture(texture_data);
+                            const texture_ptr = self.textures.get(texture_handle).?;
+                            material.albedo = texture_handle;
+                            material.updateTextures(&self.context, texture_ptr, texture_ptr, texture_ptr);
+                        } else if (img.buffer_view) |buffer_view| {
+                            const buffer =buffer_view.buffer;
+                            const offset = buffer_view.offset;
+                            const size = buffer_view.size;
+                            const data_ptr: [*]u8 = @ptrCast(buffer.data);
+                            const data = data_ptr[offset..offset+size];
+                            const texture_handle = try self.createTexture(data);
+                            const texture_ptr = self.textures.get(texture_handle).?;
+                            material.albedo = texture_handle;
+                            material.updateTextures(&self.context, texture_ptr, texture_ptr, texture_ptr);
+                        }
+                    }
+                }
             }
         }
     }
