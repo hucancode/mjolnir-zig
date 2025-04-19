@@ -7,6 +7,7 @@ const Allocator = std.mem.Allocator;
 const data_buffer = @import("data_buffer.zig");
 const DataBuffer = data_buffer.DataBuffer;
 const ImageBuffer = data_buffer.ImageBuffer;
+const createImageView = data_buffer.createImageView;
 
 const REQUIRED_DEVICE_EXTENSIONS = [_][*:0]const u8{
     vk.extensions.khr_swapchain.name,
@@ -498,7 +499,7 @@ pub const VulkanContext = struct {
         var result = try self.mallocImageBuffer(format, width, height);
         try self.copyImage(&result, &staging);
         const color_aspect = vk.ImageAspectFlags{ .color_bit = true };
-        result.view = try data_buffer.createImageView(result.image, format, color_aspect);
+        result.view = try createImageView(result.image, format, color_aspect);
         return result;
     }
 

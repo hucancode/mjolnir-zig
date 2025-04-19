@@ -8,17 +8,9 @@ const createImageView = @import("../engine/data_buffer.zig").createImageView;
 const Engine = @import("../engine/engine.zig").Engine;
 
 pub const Texture = struct {
-    image: Image,
-    buffer: ImageBuffer,
-    sampler: vk.Sampler,
-
-    pub fn init() Texture {
-        return .{
-            .pixels = undefined,
-            .buffer = undefined,
-            .sampler = .null_handle,
-        };
-    }
+    image: Image = undefined,
+    buffer: ImageBuffer = undefined,
+    sampler: vk.Sampler = .null_handle,
 
     /// Initialize texture from raw pixel data
     pub fn initFromData(self: *Texture, data: []const u8) !void {
