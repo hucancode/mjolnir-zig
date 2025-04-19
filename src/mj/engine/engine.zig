@@ -482,8 +482,8 @@ pub const Engine = struct {
     pub fn createMaterial(self: *Engine) !Handle {
         const handle = self.materials.malloc();
         const mat = self.materials.get(handle) orelse return error.ResourceAllocationFailed;
-        const vertex_code align(@alignOf(u32)) = @embedFile("shaders/pbr.vert.spv").*;
-        const fragment_code align(@alignOf(u32)) = @embedFile("shaders/pbr.frag.spv").*;
+        const vertex_code align(@alignOf(u32)) = @embedFile("shaders/pbr/vert.spv").*;
+        const fragment_code align(@alignOf(u32)) = @embedFile("shaders/pbr/frag.spv").*;
         try mat.initDescriptorSet(&self.context);
         std.debug.print("Material descriptor set initialized\n", .{});
         try buildMaterial(self, mat, &vertex_code, &fragment_code);
@@ -494,8 +494,8 @@ pub const Engine = struct {
     pub fn createSkinnedMaterial(self: *Engine, max_bones: u32) !Handle {
         const handle = self.skinned_materials.malloc();
         const mat = self.skinned_materials.get(handle) orelse return error.ResourceAllocationFailed;
-        const vertex_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr.vert.spv").*;
-        const fragment_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr.frag.spv").*;
+        const vertex_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr/vert.spv").*;
+        const fragment_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr/frag.spv").*;
         mat.max_bones = max_bones;
         try mat.initDescriptorSet(&self.context);
         try buildSkinnedMaterial(self, mat, &vertex_code, &fragment_code);

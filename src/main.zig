@@ -47,7 +47,7 @@ fn setup(e: *mj.Engine) !void {
         e.addToRoot(light[i]);
         light_cube[i] = e.createMeshNode(mesh);
         const light_cube_ptr = e.nodes.get(light_cube[i]).?;
-        light_cube_ptr.transform.scale = zm.f32x4s(0.2);
+        light_cube_ptr.transform.scale = zm.f32x4s(0.1);
         e.parentNode(light[i], light_cube[i]);
     }
     const sunlight = e.createLightNode(e.createDirectionalLight(.{0.0, 0.05, 0.1, 0.0}));
@@ -59,7 +59,7 @@ fn setup(e: *mj.Engine) !void {
 fn update(e: *mj.Engine) void {
     e.scene.camera.lookAt(.{ 0.0, 2.5, -5.0, 0.0 });
     for(0..light.len) |i| {
-        const t = e.getTime() + @as(f32, @floatFromInt(i))*std.math.pi;
+        const t = e.getTime() + @as(f32, @floatFromInt(i))/@as(f32, @floatFromInt(light.len)) * std.math.pi * 2.0;
         const light_ptr = e.nodes.get(light[i]).?;
         const rx = std.math.sin(t);
         const ry = std.math.sin(t * 0.2) + 1.0;
