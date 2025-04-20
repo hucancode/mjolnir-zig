@@ -10,7 +10,7 @@ const Time = std.time.Instant;
 const ArrayList = std.ArrayList;
 
 const Renderer = @import("renderer.zig").Renderer;
-const Scene = @import("scene.zig").Scene;
+const Scene = @import("../scene/scene.zig").Scene;
 const Handle = @import("resource.zig").Handle;
 const Node = @import("../scene/node.zig").Node;
 const NodeType = @import("../scene/node.zig").NodeType;

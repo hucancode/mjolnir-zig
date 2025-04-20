@@ -1,9 +1,9 @@
 const std = @import("std");
 const vk = @import("vulkan");
 const zm = @import("zmath");
-const context = @import("context.zig").get();
+const context = @import("../engine/context.zig").get();
 const Camera = @import("camera.zig").Camera;
-const Handle = @import("resource.zig").Handle;
+const Handle = @import("../engine/resource.zig").Handle;
 
 pub const Scene = struct {
     root: Handle,
