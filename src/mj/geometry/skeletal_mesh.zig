@@ -3,6 +3,7 @@ const zm = @import("zmath");
 const vk = @import("vulkan");
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
+const context = @import("../engine/context.zig").get();
 
 const VulkanContext = @import("../engine/context.zig").VulkanContext;
 const DataBuffer = @import("../engine/data_buffer.zig").DataBuffer;
@@ -11,12 +12,10 @@ const Transform = @import("../scene/node.zig").Transform;
 const ResourcePool = @import("../engine/resource.zig").ResourcePool;
 const Node = @import("../scene/node.zig").Node;
 const NodeType = @import("../scene/node.zig").NodeType;
-const AnimationTrack = @import("animation.zig").AnimationTrack;
-const Animation = @import("animation.zig").Animation;
 const Engine = @import("../engine/engine.zig").Engine;
-const PositionKeyframe = @import("animation.zig").PositionKeyframe;
-const RotationKeyframe = @import("animation.zig").RotationKeyframe;
-const ScaleKeyframe = @import("animation.zig").ScaleKeyframe;
+const AnimationClip = @import("animation.zig").AnimationClip;
+const AnimationInstance = @import("animation.zig").AnimationInstance;
+const Pose = @import("animation.zig").Pose;
 
 /// Vertex structure for skinned meshes
 pub const SkinnedVertex = struct {
@@ -26,12 +25,6 @@ pub const SkinnedVertex = struct {
     uv: [2]f32,
     joints: [4]u32,
     weights: [4]f32,
-};
-
-pub const Bone = struct {
-    children: std.ArrayList(u32),
-    transform: Transform,
-    inverse_bind_matrix: zm.Mat,
 };
 
 /// Vertex input binding description for skinned vertices
@@ -89,67 +82,40 @@ pub const SKINNED_VERTEX_ATTR_DESCRIPTION = [_]vk.VertexInputAttributeDescriptio
     },
 };
 
+pub const Bone = struct {
+    bind_transform: Transform = .{},
+    children: []u32 = undefined,
+    inverse_bind_matrix: zm.Mat = zm.identity(),
+};
+
 /// Skeletal mesh with skinning support
 pub const SkeletalMesh = struct {
+    root_bone: u32 = 0,
     bones: []Bone,
+    animations: []AnimationClip,
     vertices_len: u32 = 0,
     indices_len: u32 = 0,
-    animations: StringHashMap(AnimationTrack),
-    vertex_buffer: DataBuffer,
-    index_buffer: DataBuffer,
-    bone_buffer: DataBuffer,
-    material: Handle,
-    allocator: Allocator,
+    vertex_buffer: DataBuffer = undefined,
+    index_buffer: DataBuffer = undefined,
+    material: Handle = undefined,
 
-    pub fn init(allocator: Allocator) SkeletalMesh {
-        return .{
-            .bones = &[_]Handle{},
-            .vertices_len = 0,
-            .indices_len = 0,
-            .animations = StringHashMap(AnimationTrack).init(allocator),
-            .vertex_buffer = undefined,
-            .index_buffer = undefined,
-            .bone_buffer = undefined,
-            .material = undefined,
-            .allocator = allocator,
-        };
-    }
-
-    pub fn buildBoneBuffer(self: *SkeletalMesh) !void {
-        self.bone_buffer = try DataBuffer.init(self.allocator, self.bones.len * @sizeOf(zm.Mat));
-    }
-
-    pub fn update(self: *SkeletalMesh) !void {
-        if (self.bones.len == 0) return;
-        var transform_stack = std.ArrayList(zm.Mat).init(self.allocator);
+    pub fn calculateAnimationTransform(self: *SkeletalMesh, allocator: Allocator, animation: *AnimationInstance, pose: *Pose) void {
+        var transform_stack = std.ArrayList(zm.Mat).init(allocator);
         defer transform_stack.deinit();
-        var bone_stack = std.ArrayList(u32).init(self.allocator);
+        var bone_stack = std.ArrayList(u32).init(allocator);
         defer bone_stack.deinit();
-        // Start with the root bone (bone[0])
-        try bone_stack.append(0);
-        try transform_stack.append(zm.identity());
-        // Get pointer to bone matrices in GPU buffer
-        const matrices: *[*]zm.Mat = if (self.bone_buffer.mapped) |raw_ptr|
-            @ptrCast(raw_ptr)
-        else
-            return;
-
-        while (bone_stack.items.len > 0) {
-            const bone_idx = bone_stack.pop();
-            const bone = &self.bones[bone_idx];
-            const parent_transform = transform_stack.pop() orelse zm.identity();
-
-            // Calculate world transform for this bone
-            const local_transform = bone.transform.toMatrix();
-            const world_transform = zm.mul(local_transform, parent_transform);
-
-            // Calculate final matrix for skinning (includes inverse bind pose)
-            matrices.*[bone_idx] = zm.mul(world_transform, bone.inverse_bind_matrix);
-
-            // Push children onto the stack
-            for (bone.children.items) |child_idx| {
-                try bone_stack.append(child_idx);
-                try transform_stack.append(world_transform);
+        transform_stack.append(zm.identity()) catch unreachable;
+        bone_stack.append(self.root_bone) catch unreachable;
+        while (bone_stack.pop()) |bone_index| {
+            const parent_matrix = transform_stack.pop().?;
+            var animated_transform: Transform = .{};
+            self.animations[animation.clip].animations[bone_index].calculate(animation.time, &animated_transform);
+            const local_matrix = animated_transform.toMatrix();
+            const world_matrix = zm.mul(local_matrix, parent_matrix);
+            pose.bone_matrices[bone_index] = zm.mul(self.bones[bone_index].inverse_bind_matrix, world_matrix);
+            for (self.bones[bone_index].children) |i| {
+                transform_stack.append(world_matrix) catch unreachable;
+                bone_stack.append(i) catch unreachable;
             }
         }
     }
@@ -157,17 +123,5 @@ pub const SkeletalMesh = struct {
     pub fn deinit(self: *SkeletalMesh) void {
         self.vertex_buffer.deinit();
         self.index_buffer.deinit();
-        if (self.bones.len > 0) {
-            self.bone_buffer.deinit();
-        }
-        var animation_iter = self.animations.iterator();
-        while (animation_iter.next()) |entry| {
-            entry.value_ptr.deinit(self.allocator);
-        }
-        self.animations.deinit();
-        for (self.bones) |*bone| {
-            bone.children.deinit();
-        }
-        self.allocator.free(self.bones);
     }
 };

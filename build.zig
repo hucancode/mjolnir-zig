@@ -80,10 +80,8 @@ fn compile_shader(b: *std.Build, exe: *std.Build.Step.Compile, shader_path: []co
     const frag_spv_path = b.pathJoin(&.{ "shaders", shader_name, "frag.spv" });
     const frag_spv = frag_cmd.addOutputFileArg(frag_spv_path);
     const frag_src_path = b.pathJoin(&.{ shader_path, shader_name, "shader.frag" });
-    std.debug.print("building {s} using {s}\n", .{frag_spv_path, frag_src_path});
+    // std.debug.print("building {s} using {s}\n", .{frag_spv_path, frag_src_path});
     frag_cmd.addFileArg(b.path(frag_src_path));
-
-    // Import as shaders/shadername/frag.spv
     exe.root_module.addAnonymousImport(frag_spv_path, .{
         .root_source_file = frag_spv,
     });

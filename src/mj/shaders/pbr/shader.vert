@@ -24,6 +24,7 @@ void main() {
     outNormal = (world * vec4(inNormal, 1.0)).xyz;
     outColor = inColor;
     outUV = inUV;
-    outPosition = (world * vec4(inPosition, 1.0)).xyz;
-    gl_Position = proj * view * world * vec4(inPosition, 1.0);
+    vec4 worldPosition = world * vec4(inPosition, 1.0);
+    outPosition = worldPosition.xyz;
+    gl_Position = proj * view * worldPosition;
 }

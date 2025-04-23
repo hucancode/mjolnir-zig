@@ -18,6 +18,16 @@ pub const DataBuffer = struct {
         @memcpy(dst, src);
     }
 
+    pub fn writeAt(self: *DataBuffer, offset: usize, data: []const u8) void {
+        if (self.mapped == null) {
+            return;
+        }
+        const dst_ptr: [*]u8 = @ptrCast(self.mapped);
+        const dst = dst_ptr[offset .. offset + data.len];
+        const src = data;
+        @memcpy(dst, src);
+    }
+
     pub fn deinit(self: *DataBuffer) void {
         if (self.mapped != null) {
             context.*.vkd.unmapMemory(self.memory);

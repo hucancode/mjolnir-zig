@@ -24,17 +24,20 @@ layout(push_constant) uniform Constants {
 layout(location = 0) out vec3 outNormal;
 layout(location = 1) out vec4 outColor;
 layout(location = 2) out vec2 outUV;
+layout(location = 3) out vec3 outPosition;
 
 void main() {
     mat4 skinMatrix =
         inWeights.x * bones[inJoints.x] +
-            inWeights.y * bones[inJoints.y] +
-            inWeights.z * bones[inJoints.z] +
-            inWeights.w * bones[inJoints.w];
+        inWeights.y * bones[inJoints.y] +
+        inWeights.z * bones[inJoints.z] +
+        inWeights.w * bones[inJoints.w];
     vec4 skinnedPosition = skinMatrix * vec4(inPosition, 1.0);
-    vec4 skinnedNormal = normalize(skinMatrix * vec4(inNormal, 1.0));
+    vec4 skinnedNormal = normalize(skinMatrix * vec4(inNormal, 0.0));
     outNormal = (world * skinnedNormal).xyz;
     outColor = inColor;
     outUV = inUV;
-    gl_Position = proj * view * world * skinnedPosition;
+    vec4 worldPosition = world * skinnedPosition;
+    outPosition = worldPosition.xyz;
+    gl_Position = proj * view * worldPosition;
 }
