@@ -7,6 +7,7 @@ const Allocator = std.mem.Allocator;
 const data_buffer = @import("data_buffer.zig");
 const DataBuffer = data_buffer.DataBuffer;
 const ImageBuffer = data_buffer.ImageBuffer;
+const createImageView = data_buffer.createImageView;
 
 const REQUIRED_DEVICE_EXTENSIONS = [_][*:0]const u8{
     vk.extensions.khr_swapchain.name,
@@ -90,8 +91,8 @@ pub const VulkanContext = struct {
     graphics_queue: vk.Queue,
     present_family: u32,
     present_queue: vk.Queue,
-    descriptor_pool: vk.DescriptorPool,
-    command_pool: vk.CommandPool,
+    descriptor_pool: vk.DescriptorPool, // TODO: we need 1 per thread
+    command_pool: vk.CommandPool, // TODO: we need 1 per thread
     allocator: Allocator,
 
     pub fn init(self: *VulkanContext, window: *glfw.Window, allocator: Allocator) !void {
@@ -358,12 +359,18 @@ pub const VulkanContext = struct {
             .type = .uniform_buffer,
             .descriptor_count = MAX_FRAMES_IN_FLIGHT * SCENE_UNIFORM_COUNT,
         };
-        const pool_sizes = [_]vk.DescriptorPoolSize{ sampler_size, uniform_size };
+        const storage_size = vk.DescriptorPoolSize{
+            .type = .storage_buffer,
+            .descriptor_count = ACTIVE_MATERIAL_COUNT, // One per skinned material
+        };
+        const pool_sizes = [_]vk.DescriptorPoolSize{ sampler_size, uniform_size, storage_size };
         const pool_info = vk.DescriptorPoolCreateInfo{
+            .flags = .{}, // Add .free_descriptor_set_bit if you need to free individual sets
             .pool_size_count = pool_sizes.len,
             .p_pool_sizes = &pool_sizes,
             .max_sets = MAX_FRAMES_IN_FLIGHT + ACTIVE_MATERIAL_COUNT,
         };
+        std.debug.print("Creating descriptor pool with {d} sampler, {d} uniform, {d} storage descriptors\n", .{ MAX_SAMPLER_COUNT, MAX_FRAMES_IN_FLIGHT * SCENE_UNIFORM_COUNT, ACTIVE_MATERIAL_COUNT });
         self.descriptor_pool = try self.vkd.createDescriptorPool(&pool_info, null);
     }
 
@@ -476,7 +483,7 @@ pub const VulkanContext = struct {
     pub fn createLocalBuffer(self: *VulkanContext, data: []const u8, usage: vk.BufferUsageFlags) !DataBuffer {
         std.debug.print("Creating local buffer size {d}\n", .{data.len});
         var staging = try self.createHostVisibleBuffer(data, .{ .transfer_src_bit = true });
-        defer staging.deinit(self);
+        defer staging.deinit();
         var result = try self.mallocLocalBuffer(
             data.len,
             usage.merge(.{ .transfer_dst_bit = true }),
@@ -493,11 +500,11 @@ pub const VulkanContext = struct {
 
     pub fn createImageBuffer(self: *VulkanContext, data: []const u8, format: vk.Format, width: u32, height: u32) !ImageBuffer {
         var staging = try self.createHostVisibleBuffer(data, .{ .transfer_src_bit = true });
-        defer staging.deinit(self);
+        defer staging.deinit();
         var result = try self.mallocImageBuffer(format, width, height);
         try self.copyImage(&result, &staging);
         const color_aspect = vk.ImageAspectFlags{ .color_bit = true };
-        result.view = try data_buffer.createImageView(self, result.image, format, color_aspect);
+        result.view = try createImageView(result.image, format, color_aspect);
         return result;
     }
 
@@ -603,65 +610,6 @@ pub const VulkanContext = struct {
         );
         try self.endSingleTimeCommand(cmd_buffer);
     }
-
-    pub fn createDepthImage(self: *VulkanContext, format: vk.Format, width: u32, height: u32) !ImageBuffer {
-        const create_info = vk.ImageCreateInfo{
-            .image_type = .@"2d",
-            .extent = .{ .width = width, .height = height, .depth = 1 },
-            .mip_levels = 1,
-            .array_layers = 1,
-            .format = format,
-            .tiling = .optimal,
-            .initial_layout = .undefined,
-            .usage = .{ .depth_stencil_attachment_bit = true },
-            .sharing_mode = .exclusive,
-            .samples = .{ .@"1_bit" = true },
-        };
-        var result = ImageBuffer{
-            .image = try self.vkd.createImage(&create_info, null),
-            .memory = undefined,
-            .width = width,
-            .height = height,
-            .format = format,
-            .view = undefined,
-        };
-        const mem_requirements = self.vkd.getImageMemoryRequirements(result.image);
-        result.memory = try self.allocateMemory(mem_requirements, .{});
-        try self.vkd.bindImageMemory(result.image, result.memory, 0);
-        // Transition image layout for depth attachment
-        const cmd_buffer = try self.beginSingleTimeCommand();
-        const barrier = vk.ImageMemoryBarrier{
-            .old_layout = .undefined,
-            .new_layout = .depth_stencil_attachment_optimal,
-            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .image = result.image,
-            .subresource_range = .{
-                .aspect_mask = .{ .depth_bit = true },
-                .base_mip_level = 0,
-                .level_count = 1,
-                .base_array_layer = 0,
-                .layer_count = 1,
-            },
-            .src_access_mask = .{},
-            .dst_access_mask = .{ .depth_stencil_attachment_write_bit = true },
-        };
-        self.vkd.cmdPipelineBarrier(
-            cmd_buffer,
-            .{ .top_of_pipe_bit = true },
-            .{ .early_fragment_tests_bit = true },
-            .{},
-            0,
-            undefined,
-            0,
-            undefined,
-            1,
-            @ptrCast(&barrier),
-        );
-        try self.endSingleTimeCommand(cmd_buffer);
-        result.view = try data_buffer.createImageView(self, result.image, format, .{ .depth_bit = true });
-        return result;
-    }
 };
 
 fn debugCallback(
@@ -679,4 +627,10 @@ fn debugCallback(
         }
     }
     return vk.FALSE;
+}
+
+pub var context: VulkanContext = undefined;
+
+pub fn get() *VulkanContext {
+    return &context;
 }

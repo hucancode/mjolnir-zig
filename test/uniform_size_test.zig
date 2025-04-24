@@ -25,6 +25,6 @@ pub const SceneUniform = struct {
 test "struct size" {
     try expect(@sizeOf(LightUniform) == 64);
     try expect(@offsetOf(LightUniform, "angle") == 48);
-    try expect(@sizeOf(SceneUniform) == 64+64+640+16);
-    try expect(@offsetOf(SceneUniform, "lights") == 64+64);
+    try expect(@sizeOf(SceneUniform) == 64 + 64 + 640 + 16);
+    try expect(@offsetOf(SceneUniform, "lights") == 64 + 64);
 }

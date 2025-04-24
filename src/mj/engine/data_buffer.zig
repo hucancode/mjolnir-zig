@@ -1,6 +1,6 @@
 const std = @import("std");
 const vk = @import("vulkan");
-const VulkanContext = @import("context.zig").VulkanContext;
+const context = @import("context.zig").get();
 
 pub const DataBuffer = struct {
     buffer: vk.Buffer,
@@ -9,20 +9,31 @@ pub const DataBuffer = struct {
     size: usize,
 
     pub fn write(self: *DataBuffer, data: []const u8) void {
-        if (self.mapped != null) {
-            const dst_ptr: [*]u8 = @ptrCast(self.mapped);
-            const dst = dst_ptr[0..data.len];
-            const src = data;
-            @memcpy(dst, src);
+        if (self.mapped == null) {
+            return;
         }
+        const dst_ptr: [*]u8 = @ptrCast(self.mapped);
+        const dst = dst_ptr[0..data.len];
+        const src = data;
+        @memcpy(dst, src);
     }
 
-    pub fn deinit(self: *DataBuffer, context: *VulkanContext) void {
-        if (self.mapped != null) {
-            context.vkd.unmapMemory(self.memory);
+    pub fn writeAt(self: *DataBuffer, offset: usize, data: []const u8) void {
+        if (self.mapped == null) {
+            return;
         }
-        context.vkd.destroyBuffer(self.buffer, null);
-        context.vkd.freeMemory(self.memory, null);
+        const dst_ptr: [*]u8 = @ptrCast(self.mapped);
+        const dst = dst_ptr[offset .. offset + data.len];
+        const src = data;
+        @memcpy(dst, src);
+    }
+
+    pub fn deinit(self: *DataBuffer) void {
+        if (self.mapped != null) {
+            context.*.vkd.unmapMemory(self.memory);
+        }
+        context.*.vkd.destroyBuffer(self.buffer, null);
+        context.*.vkd.freeMemory(self.memory, null);
     }
 };
 
@@ -34,14 +45,14 @@ pub const ImageBuffer = struct {
     format: vk.Format,
     view: vk.ImageView,
 
-    pub fn deinit(self: *ImageBuffer, context: *VulkanContext) void {
-        context.vkd.destroyImageView(self.view, null);
-        context.vkd.destroyImage(self.image, null);
-        context.vkd.freeMemory(self.memory, null);
+    pub fn deinit(self: *ImageBuffer) void {
+        context.*.vkd.destroyImageView(self.view, null);
+        context.*.vkd.destroyImage(self.image, null);
+        context.*.vkd.freeMemory(self.memory, null);
     }
 };
 
-pub fn createImageView(context: *VulkanContext, image: vk.Image, format: vk.Format, aspect_mask: vk.ImageAspectFlags) !vk.ImageView {
+pub fn createImageView(image: vk.Image, format: vk.Format, aspect_mask: vk.ImageAspectFlags) !vk.ImageView {
     const create_info = vk.ImageViewCreateInfo{
         .image = image,
         .view_type = .@"2d",
@@ -60,6 +71,5 @@ pub fn createImageView(context: *VulkanContext, image: vk.Image, format: vk.Form
             .layer_count = 1,
         },
     };
-
-    return try context.vkd.createImageView(&create_info, null);
+    return try context.*.vkd.createImageView(&create_info, null);
 }

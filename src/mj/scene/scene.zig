@@ -1,16 +1,16 @@
 const std = @import("std");
 const vk = @import("vulkan");
 const zm = @import("zmath");
-const VulkanContext = @import("context.zig").VulkanContext;
+const context = @import("../engine/context.zig").get();
 const Camera = @import("camera.zig").Camera;
-const Handle = @import("resource.zig").Handle;
+const Handle = @import("../engine/resource.zig").Handle;
 
 pub const Scene = struct {
     root: Handle,
     camera: Camera,
     descriptor_set_layout: vk.DescriptorSetLayout,
 
-    pub fn init(self: *Scene, context: *VulkanContext) !void {
+    pub fn init(self: *Scene) !void {
         self.camera = .{
             .projection = .{
                 .perspective = .{
@@ -62,11 +62,11 @@ pub const Scene = struct {
             .binding_count = bindings.len,
             .p_bindings = &bindings,
         };
-        self.descriptor_set_layout = try context.vkd.createDescriptorSetLayout(&layout_info, null);
+        self.descriptor_set_layout = try context.*.vkd.createDescriptorSetLayout(&layout_info, null);
     }
 
-    pub fn deinit(self: *Scene, context: *VulkanContext) void {
-        context.vkd.destroyDescriptorSetLayout(self.descriptor_set_layout, null);
+    pub fn deinit(self: *Scene) void {
+        context.*.vkd.destroyDescriptorSetLayout(self.descriptor_set_layout, null);
     }
 
     pub fn viewMatrix(self: *const Scene) zm.Mat {

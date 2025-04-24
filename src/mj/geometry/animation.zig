@@ -4,6 +4,8 @@ const Allocator = std.mem.Allocator;
 const ResourcePool = @import("../engine/resource.zig").ResourcePool;
 const Handle = @import("../engine/resource.zig").Handle;
 const Node = @import("../scene/node.zig").Node;
+const Transform = @import("../scene/node.zig").Transform;
+const DataBuffer = @import("../engine/data_buffer.zig").DataBuffer;
 
 /// Generic keyframe type for animations
 pub fn Keyframe(comptime T: type) type {
@@ -28,9 +30,13 @@ pub fn MergeProc(comptime T: type) type {
 }
 
 /// Sample a value from keyframes at a specific time
-pub fn sample(comptime T: type, frames: []const Keyframe(T), t: f32, merge: MergeProc(T)) T {
-    if (frames.len == 0 or t - frames[0].time < 1e-6) {
+pub fn sampleKeyframe(comptime T: type, frames: []const Keyframe(T), t: f32, merge: MergeProc(T)) T {
+    if (frames.len == 0) {
+        std.debug.panic("no frames to sample from", .{});
         return std.mem.zeroes(T);
+    }
+    if (t - frames[0].time < 1e-6) {
+        return frames[0].value;
     }
     if (t >= frames[frames.len - 1].time) {
         return frames[frames.len - 1].value;
@@ -51,12 +57,6 @@ fn compareKeyframes(comptime T: type) fn (f32, Keyframe(T)) std.math.Order {
     return S.predicate;
 }
 
-// Animation-specific types
-pub const PositionKeyframe = Keyframe(zm.Vec);
-pub const ScaleKeyframe = Keyframe(zm.Vec);
-pub const RotationKeyframe = Keyframe(zm.Quat);
-
-// Animation status and modes
 pub const AnimationStatus = enum {
     playing,
     paused,
@@ -68,26 +68,64 @@ pub const AnimationPlayMode = enum {
     once,
     pingpong,
 };
+pub const Pose = struct {
+    bone_matrices: []zm.Mat,
+    bone_buffer: DataBuffer = undefined,
 
-// Instance of an animation being played
-pub const AnimationInstance = struct {
-    mode: AnimationPlayMode,
-    status: AnimationStatus,
-    name: []const u8,
-    time: f32,
+    pub fn deinit(self: *Pose) void {
+        self.bone_buffer.deinit();
+    }
+
+    pub fn flush(self: *Pose) void {
+        self.bone_buffer.write(std.mem.sliceAsBytes(self.bone_matrices));
+    }
 };
 
-// Animation for a single bone/node
-pub const Animation = struct {
-    bone_idx: u32,
-    positions: []PositionKeyframe,
-    rotations: []RotationKeyframe,
-    scales: []ScaleKeyframe,
+pub const AnimationInstance = struct {
+    clip: u32,
+    mode: AnimationPlayMode,
+    status: AnimationStatus,
+    time: f32,
+    duration: f32,
 
-    pub fn deinit(self: *Animation, allocator: Allocator) void {
-        allocator.free(self.positions);
-        allocator.free(self.rotations);
-        allocator.free(self.scales);
+    pub fn update(self: *AnimationInstance, delta_time: f32) void {
+        switch (self.mode) {
+            .loop => {
+                self.time += delta_time;
+                self.time = @rem(self.time, self.duration);
+            },
+            .once => {
+                self.time += delta_time;
+                if (self.time >= self.duration) {
+                    self.status = .stopped;
+                }
+            },
+            .pingpong => {
+                self.time += delta_time;
+                if (self.time >= self.duration) {
+                    self.time = self.duration - self.time;
+                    self.status = .stopped;
+                }
+            },
+        }
+    }
+};
+
+pub const AnimationClip = struct {
+    name: []const u8,
+    duration: f32,
+    animations: []AnimationChannel,
+};
+
+pub const AnimationChannel = struct {
+    position: []Keyframe(zm.Vec) = undefined,
+    rotation: []Keyframe(zm.Quat) = undefined,
+    scale: []Keyframe(zm.Vec),
+
+    pub fn deinit(self: *AnimationChannel, allocator: Allocator) void {
+        allocator.free(self.position);
+        allocator.free(self.rotation);
+        allocator.free(self.scale);
     }
 
     fn lerp_vector(a: zm.Vec, b: zm.Vec, t: f32) zm.Vec {
@@ -98,35 +136,27 @@ pub const Animation = struct {
         return zm.slerp(a, b, t);
     }
 
-    pub fn update(self: *Animation, t: f32, node_pool: *ResourcePool(Node), bones: []const Handle) void {
-        const target = node_pool.get(bones[self.bone_idx]) orelse return;
-        if (self.positions.len > 0) {
-            target.transform.position = sample(zm.Vec, self.positions, t, Animation.lerp_vector);
+    pub fn update(self: *AnimationChannel, t: f32, target: *Transform) void {
+        if (self.position.len > 0) {
+            target.position = sampleKeyframe(zm.Vec, self.position, t, AnimationChannel.lerp_vector);
         }
-        if (self.rotations.len > 0) {
-            target.transform.rotation = sample(zm.Quat, self.rotations, t, Animation.lerp_quat);
+        if (self.rotation.len > 0) {
+            target.rotation = sampleKeyframe(zm.Quat, self.rotation, t, AnimationChannel.lerp_quat);
         }
-        if (self.scales.len > 0) {
-            target.transform.scale = sample(zm.Vec, self.scales, t, Animation.lerp_vector);
+        if (self.scale.len > 0) {
+            target.scale = sampleKeyframe(zm.Vec, self.scale, t, AnimationChannel.lerp_vector);
         }
     }
-};
 
-// Track containing multiple animations with the same duration
-pub const AnimationTrack = struct {
-    animations: []Animation,
-    duration: f32,
-
-    pub fn deinit(self: *AnimationTrack, allocator: Allocator) void {
-        for (self.animations) |*animation| {
-            animation.deinit(allocator);
+    pub fn calculate(self: *AnimationChannel, t: f32, output: *Transform) void {
+        if (self.position.len > 0) {
+            output.position = sampleKeyframe(zm.Vec, self.position, t, AnimationChannel.lerp_vector);
         }
-        allocator.free(self.animations);
-    }
-
-    pub fn update(self: *AnimationTrack, t: f32, node_pool: *ResourcePool(Node), bones: []const Handle) void {
-        for (self.animations) |*animation| {
-            animation.update(t, node_pool, bones);
+        if (self.rotation.len > 0) {
+            output.rotation = sampleKeyframe(zm.Quat, self.rotation, t, AnimationChannel.lerp_quat);
+        }
+        if (self.scale.len > 0) {
+            output.scale = sampleKeyframe(zm.Vec, self.scale, t, AnimationChannel.lerp_vector);
         }
     }
 };

@@ -3,10 +3,13 @@ const vk = @import("vulkan");
 const mj = @import("mj/engine/engine.zig");
 const zm = @import("zmath");
 const Handle = @import("mj/engine/resource.zig").Handle;
+const AnimationPlayMode = @import("mj/geometry/animation.zig").AnimationPlayMode;
+
 const WIDTH = 1280;
 const HEIGHT = 720;
 const TITLE = "Hello Mjolnir!";
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+// disable safety to avoid excessive logs, enable it later to fix memory leaks
+var gpa = std.heap.GeneralPurposeAllocator(.{.safety = false}){};
 const allocator = gpa.allocator();
 var light: [3]Handle = undefined;
 var light_cube: [3]Handle = undefined;
@@ -27,15 +30,27 @@ pub fn main() !void {
 }
 
 fn setup(e: *mj.Engine) !void {
-    const texture = try e.createTexture(@embedFile("assets/statue-1275469_1280.jpg"));
+    const texture = try e.createTextureFromData(@embedFile("assets/statue-1275469_1280.jpg"));
     const texture_ptr = e.textures.get(texture).?;
     const material = try e.createMaterial();
     const material_ptr = e.materials.get(material).?;
-    material_ptr.updateTextures(&e.context, texture_ptr, texture_ptr, texture_ptr);
+    material_ptr.updateTextures(texture_ptr, texture_ptr, texture_ptr);
     const mesh = try e.createCube(material);
-    e.scene.camera.position = .{ 0.0, 0.0, -15.0, 0.0 };
+    e.scene.camera.position = .{ 0.0, 10.0, -15.0, 0.0 };
     e.scene.camera.lookAt(.{ 0.0, 2.5, -5.0, 0.0 });
-    try e.loadGltf("assets/Duck.glb");
+    _ = try e.loadGltf("assets/Duck.glb");
+    const gltf_nodes = try e.loadGltf("assets/CesiumMan.glb");
+    for (gltf_nodes) |node| {
+        const name = "Anim_0";
+        e.playAnimation(node, name, .loop) catch {
+            e.unparentNode(node);
+            continue;
+        };
+        const ptr = e.nodes.get(node).?;
+        ptr.transform.position = .{5.0, 0.0, 0.0, 0.0};
+        ptr.transform.scale = .{3.0, 3.0, 3.0, 3.0};
+        ptr.transform.rotation = zm.quatFromNormAxisAngle(.{ 0.0, 1.0, 0.0, 0.0 }, std.math.pi);
+    }
     for (0..light.len) |i| {
         const color: zm.Vec = .{
             std.math.sin(@as(f32, @floatFromInt(i))),
@@ -47,10 +62,10 @@ fn setup(e: *mj.Engine) !void {
         e.addToRoot(light[i]);
         light_cube[i] = e.createMeshNode(mesh);
         const light_cube_ptr = e.nodes.get(light_cube[i]).?;
-        light_cube_ptr.transform.scale = zm.f32x4s(0.2*@as(f32, @floatFromInt(i)) + 0.4);
+        light_cube_ptr.transform.scale = zm.f32x4s(0.2 * @as(f32, @floatFromInt(i)) + 0.4);
         e.parentNode(light[i], light_cube[i]);
     }
-    const sunlight = e.createLightNode(e.createDirectionalLight(.{0.01, 0.01, 0.01, 0.0}));
+    const sunlight = e.createLightNode(e.createDirectionalLight(.{ 0.01, 0.01, 0.01, 0.0 }));
     e.addToRoot(sunlight);
     const sunlight_ptr = e.nodes.get(sunlight).?;
     sunlight_ptr.transform.position = .{ 0.0, -10.0, 5.0, 0.0 };
@@ -58,8 +73,8 @@ fn setup(e: *mj.Engine) !void {
 
 fn update(e: *mj.Engine) void {
     e.scene.camera.lookAt(.{ 0.0, 2.5, -5.0, 0.0 });
-    for(0..light.len) |i| {
-        const t = e.getTime() + @as(f32, @floatFromInt(i))/@as(f32, @floatFromInt(light.len)) * std.math.pi * 2.0;
+    for (0..light.len) |i| {
+        const t = e.getTime() + @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(light.len)) * std.math.pi * 2.0;
         const light_ptr = e.nodes.get(light[i]).?;
         const rx = std.math.sin(t);
         const ry = std.math.sin(t * 0.2) + 1.0;

@@ -2,9 +2,9 @@ const std = @import("std");
 const zm = @import("zmath");
 
 pub const Camera = struct {
-    up: zm.Vec = .{0.0, 1.0, 0.0, 0.0},
-    position: zm.Vec = .{0.0, 0.0, 0.0, 0.0},
-    rotation: zm.Quat = .{0.0, 0.0, 0.0, 1.0},
+    up: zm.Vec = .{ 0.0, 1.0, 0.0, 0.0 },
+    position: zm.Vec = .{ 0.0, 0.0, 0.0, 0.0 },
+    rotation: zm.Quat = .{ 0.0, 0.0, 0.0, 1.0 },
     projection: union(enum) {
         perspective: struct {
             fov: f32,

@@ -3,19 +3,19 @@ const zm = @import("zmath");
 const vk = @import("vulkan");
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
+const context = @import("../engine/context.zig").get();
 
 const VulkanContext = @import("../engine/context.zig").VulkanContext;
 const DataBuffer = @import("../engine/data_buffer.zig").DataBuffer;
 const Handle = @import("../engine/resource.zig").Handle;
+const Transform = @import("../scene/node.zig").Transform;
 const ResourcePool = @import("../engine/resource.zig").ResourcePool;
 const Node = @import("../scene/node.zig").Node;
 const NodeType = @import("../scene/node.zig").NodeType;
-const AnimationTrack = @import("animation.zig").AnimationTrack;
-const Animation = @import("animation.zig").Animation;
 const Engine = @import("../engine/engine.zig").Engine;
-const PositionKeyframe = @import("animation.zig").PositionKeyframe;
-const RotationKeyframe = @import("animation.zig").RotationKeyframe;
-const ScaleKeyframe = @import("animation.zig").ScaleKeyframe;
+const AnimationClip = @import("animation.zig").AnimationClip;
+const AnimationInstance = @import("animation.zig").AnimationInstance;
+const Pose = @import("animation.zig").Pose;
 
 /// Vertex structure for skinned meshes
 pub const SkinnedVertex = struct {
@@ -82,317 +82,46 @@ pub const SKINNED_VERTEX_ATTR_DESCRIPTION = [_]vk.VertexInputAttributeDescriptio
     },
 };
 
-/// Skeletal mesh with skinning support
-pub const SkeletalMesh = struct {
-    bones: []Handle,
-    vertices_len: u32 = 0,
-    indices_len: u32 = 0,
-    animations: StringHashMap(AnimationTrack),
-    vertex_buffer: DataBuffer,
-    index_buffer: DataBuffer,
-    bone_buffer: DataBuffer,
-    material: Handle,
-    allocator: Allocator,
-
-    pub fn init(allocator: Allocator) SkeletalMesh {
-        return .{
-            .bones = &[_]Handle{},
-            .vertices_len = 0,
-            .indices_len = 0,
-            .animations = StringHashMap(AnimationTrack).init(allocator),
-            .vertex_buffer = undefined,
-            .index_buffer = undefined,
-            .bone_buffer = undefined,
-            .material = undefined,
-            .allocator = allocator,
-        };
-    }
-
-    pub fn deinit(self: *SkeletalMesh, context: *VulkanContext) void {
-        self.vertex_buffer.deinit(context);
-        self.index_buffer.deinit(context);
-        if (self.bones.len > 0) {
-            self.bone_buffer.deinit(context);
-        }
-        var animation_iter = self.animations.iterator();
-        while (animation_iter.next()) |entry| {
-            entry.value_ptr.deinit(self.allocator);
-        }
-        self.animations.deinit();
-        self.allocator.free(self.bones);
-    }
+pub const Bone = struct {
+    bind_transform: Transform = .{},
+    children: []u32 = undefined,
+    inverse_bind_matrix: zm.Mat = zm.identity(),
 };
 
-/// Create a segmented cube with skeletal animation support
-pub fn buildSegmentedCube(
-    engine: *Engine,
-    mesh: *SkeletalMesh,
-    material: Handle,
-    segments: u32,
-    color: zm.Vec,
-) !void {
-    const actual_segments = if (segments < 2) 2 else segments;
-    const bones = try engine.allocator.alloc(Handle, actual_segments);
-    defer engine.allocator.free(bones);
+/// Skeletal mesh with skinning support
+pub const SkeletalMesh = struct {
+    root_bone: u32 = 0,
+    bones: []Bone,
+    animations: []AnimationClip,
+    vertices_len: u32 = 0,
+    indices_len: u32 = 0,
+    vertex_buffer: DataBuffer = undefined,
+    index_buffer: DataBuffer = undefined,
+    material: Handle = undefined,
 
-    for (bones, 0..) |*bone, i| {
-        bone.* = engine.initNode(NodeType.bone);
-        if (engine.nodes.get(bone.*)) |node| {
-            node.transform.position = .{
-                .x = 0.0,
-                .y = @as(f32, @floatFromInt(i)) * 2.0 / (@as(f32, @floatFromInt(actual_segments)) - 1.0),
-                .z = 0.0,
-            };
+    pub fn calculateAnimationTransform(self: *SkeletalMesh, allocator: Allocator, animation: *AnimationInstance, pose: *Pose) void {
+        var transform_stack = std.ArrayList(zm.Mat).init(allocator);
+        defer transform_stack.deinit();
+        var bone_stack = std.ArrayList(u32).init(allocator);
+        defer bone_stack.deinit();
+        transform_stack.append(zm.identity()) catch unreachable;
+        bone_stack.append(self.root_bone) catch unreachable;
+        while (bone_stack.pop()) |bone_index| {
+            const parent_matrix = transform_stack.pop().?;
+            var animated_transform: Transform = .{};
+            self.animations[animation.clip].animations[bone_index].calculate(animation.time, &animated_transform);
+            const local_matrix = animated_transform.toMatrix();
+            const world_matrix = zm.mul(local_matrix, parent_matrix);
+            pose.bone_matrices[bone_index] = zm.mul(self.bones[bone_index].inverse_bind_matrix, world_matrix);
+            for (self.bones[bone_index].children) |i| {
+                transform_stack.append(world_matrix) catch unreachable;
+                bone_stack.append(i) catch unreachable;
+            }
         }
     }
 
-    const segment_height = 2.0 / @as(f32, @floatFromInt(actual_segments));
-    // const half_segment = segment_height / 2.0;
-
-    // Calculate vertex and index counts
-    const vertex_count = actual_segments * 8;
-    const index_count = actual_segments * 36; // 6 faces * 2 triangles * 3 vertices
-
-    // Allocate vertices and indices
-    var vertices = try engine.allocator.alloc(SkinnedVertex, vertex_count);
-    defer engine.allocator.free(vertices);
-
-    var indices = try engine.allocator.alloc(u32, index_count);
-    defer engine.allocator.free(indices);
-
-    var vertex_idx: usize = 0;
-    var index_idx: usize = 0;
-
-    // Create vertices and indices for each segment
-    var s: u32 = 0;
-    while (s < actual_segments) : (s += 1) {
-        const y_bottom = -1.0 + @as(f32, @floatFromInt(s)) * segment_height;
-        const y_top = y_bottom + segment_height;
-
-        // Calculate bone weights
-        const primary_bone = s;
-        var secondary_bone = if (s < actual_segments - 1) s + 1 else s;
-        var primary_weight: f32 = 1.0;
-        var secondary_weight: f32 = 0.0;
-
-        // For segments after the first one, blend with previous bone
-        if (s > 0) {
-            secondary_bone = s - 1;
-            secondary_weight = 0.3;
-            primary_weight = 0.7;
-        }
-
-        // Create vertices for this segment
-        // Bottom face vertices
-        vertices[vertex_idx] = .{
-            .position = .{ .x = -1.0, .y = y_bottom, .z = -1.0 },
-            .normal = .{ .x = 0.0, .y = -1.0, .z = 0.0 },
-            .color = color,
-            .uv = .{ .x = 0.0, .y = 0.0 },
-            .joints = .{ .x = primary_bone, .y = secondary_bone, .z = 0, .w = 0 },
-            .weights = .{ .x = primary_weight, .y = secondary_weight, .z = 0.0, .w = 0.0 },
-        };
-        vertex_idx += 1;
-
-        vertices[vertex_idx] = .{
-            .position = .{ .x = 1.0, .y = y_bottom, .z = -1.0 },
-            .normal = .{ .x = 0.0, .y = -1.0, .z = 0.0 },
-            .color = color,
-            .uv = .{ .x = 1.0, .y = 0.0 },
-            .joints = .{ .x = primary_bone, .y = secondary_bone, .z = 0, .w = 0 },
-            .weights = .{ .x = primary_weight, .y = secondary_weight, .z = 0.0, .w = 0.0 },
-        };
-        vertex_idx += 1;
-
-        vertices[vertex_idx] = .{
-            .position = .{ .x = 1.0, .y = y_bottom, .z = 1.0 },
-            .normal = .{ .x = 0.0, .y = -1.0, .z = 0.0 },
-            .color = color,
-            .uv = .{ .x = 1.0, .y = 1.0 },
-            .joints = .{ .x = primary_bone, .y = secondary_bone, .z = 0, .w = 0 },
-            .weights = .{ .x = primary_weight, .y = secondary_weight, .z = 0.0, .w = 0.0 },
-        };
-        vertex_idx += 1;
-
-        vertices[vertex_idx] = .{
-            .position = .{ .x = -1.0, .y = y_bottom, .z = 1.0 },
-            .normal = .{ .x = 0.0, .y = -1.0, .z = 0.0 },
-            .color = color,
-            .uv = .{ .x = 0.0, .y = 1.0 },
-            .joints = .{ .x = primary_bone, .y = secondary_bone, .z = 0, .w = 0 },
-            .weights = .{ .x = primary_weight, .y = secondary_weight, .z = 0.0, .w = 0.0 },
-        };
-        vertex_idx += 1;
-
-        // Top face vertices
-        vertices[vertex_idx] = .{
-            .position = .{ .x = -1.0, .y = y_top, .z = -1.0 },
-            .normal = .{ .x = 0.0, .y = 1.0, .z = 0.0 },
-            .color = color,
-            .uv = .{ .x = 0.0, .y = 0.0 },
-            .joints = .{ .x = primary_bone, .y = secondary_bone, .z = 0, .w = 0 },
-            .weights = .{ .x = primary_weight, .y = secondary_weight, .z = 0.0, .w = 0.0 },
-        };
-        vertex_idx += 1;
-
-        vertices[vertex_idx] = .{
-            .position = .{ .x = 1.0, .y = y_top, .z = -1.0 },
-            .normal = .{ .x = 0.0, .y = 1.0, .z = 0.0 },
-            .color = color,
-            .uv = .{ .x = 1.0, .y = 0.0 },
-            .joints = .{ .x = primary_bone, .y = secondary_bone, .z = 0, .w = 0 },
-            .weights = .{ .x = primary_weight, .y = secondary_weight, .z = 0.0, .w = 0.0 },
-        };
-        vertex_idx += 1;
-
-        vertices[vertex_idx] = .{
-            .position = .{ .x = 1.0, .y = y_top, .z = 1.0 },
-            .normal = .{ .x = 0.0, .y = 1.0, .z = 0.0 },
-            .color = color,
-            .uv = .{ .x = 1.0, .y = 1.0 },
-            .joints = .{ .x = primary_bone, .y = secondary_bone, .z = 0, .w = 0 },
-            .weights = .{ .x = primary_weight, .y = secondary_weight, .z = 0.0, .w = 0.0 },
-        };
-        vertex_idx += 1;
-
-        vertices[vertex_idx] = .{
-            .position = .{ .x = -1.0, .y = y_top, .z = 1.0 },
-            .normal = .{ .x = 0.0, .y = 1.0, .z = 0.0 },
-            .color = color,
-            .uv = .{ .x = 0.0, .y = 1.0 },
-            .joints = .{ .x = primary_bone, .y = secondary_bone, .z = 0, .w = 0 },
-            .weights = .{ .x = primary_weight, .y = secondary_weight, .z = 0.0, .w = 0.0 },
-        };
-        vertex_idx += 1;
-
-        // Create indices for this segment
-        const base = s * 8;
-
-        // Bottom face
-        indices[index_idx] = base + 0;
-        index_idx += 1;
-        indices[index_idx] = base + 2;
-        index_idx += 1;
-        indices[index_idx] = base + 1;
-        index_idx += 1;
-        indices[index_idx] = base + 0;
-        index_idx += 1;
-        indices[index_idx] = base + 3;
-        index_idx += 1;
-        indices[index_idx] = base + 2;
-        index_idx += 1;
-
-        // Top face
-        indices[index_idx] = base + 4;
-        index_idx += 1;
-        indices[index_idx] = base + 5;
-        index_idx += 1;
-        indices[index_idx] = base + 6;
-        index_idx += 1;
-        indices[index_idx] = base + 4;
-        index_idx += 1;
-        indices[index_idx] = base + 6;
-        index_idx += 1;
-        indices[index_idx] = base + 7;
-        index_idx += 1;
-
-        // Front face
-        indices[index_idx] = base + 3;
-        index_idx += 1;
-        indices[index_idx] = base + 7;
-        index_idx += 1;
-        indices[index_idx] = base + 6;
-        index_idx += 1;
-        indices[index_idx] = base + 3;
-        index_idx += 1;
-        indices[index_idx] = base + 6;
-        index_idx += 1;
-        indices[index_idx] = base + 2;
-        index_idx += 1;
-
-        // Back face
-        indices[index_idx] = base + 0;
-        index_idx += 1;
-        indices[index_idx] = base + 1;
-        index_idx += 1;
-        indices[index_idx] = base + 5;
-        index_idx += 1;
-        indices[index_idx] = base + 0;
-        index_idx += 1;
-        indices[index_idx] = base + 5;
-        index_idx += 1;
-        indices[index_idx] = base + 4;
-        index_idx += 1;
-
-        // Left face
-        indices[index_idx] = base + 0;
-        index_idx += 1;
-        indices[index_idx] = base + 4;
-        index_idx += 1;
-        indices[index_idx] = base + 7;
-        index_idx += 1;
-        indices[index_idx] = base + 0;
-        index_idx += 1;
-        indices[index_idx] = base + 7;
-        index_idx += 1;
-        indices[index_idx] = base + 3;
-        index_idx += 1;
-
-        // Right face
-        indices[index_idx] = base + 1;
-        index_idx += 1;
-        indices[index_idx] = base + 2;
-        index_idx += 1;
-        indices[index_idx] = base + 6;
-        index_idx += 1;
-        indices[index_idx] = base + 1;
-        index_idx += 1;
-        indices[index_idx] = base + 6;
-        index_idx += 1;
-        indices[index_idx] = base + 5;
-        index_idx += 1;
+    pub fn deinit(self: *SkeletalMesh) void {
+        self.vertex_buffer.deinit();
+        self.index_buffer.deinit();
     }
-
-    // Build the mesh
-    try engine.buildSkeletalMesh(mesh, vertices[0..vertex_idx], indices[0..index_idx], bones, material);
-
-    // Create a simple wiggle animation
-    const animation_tracks = try engine.allocator.alloc(Animation, actual_segments);
-    errdefer engine.allocator.free(animation_tracks);
-
-    for (animation_tracks, 0..) |*anim, i| {
-        anim.* = Animation{
-            .bone_idx = @intCast(i),
-            .positions = &[_]PositionKeyframe{},
-            .rotations = undefined,
-            .scales = &[_]ScaleKeyframe{},
-        };
-
-        // Create rotation keyframes to wiggle the bones
-        var rotations = try engine.allocator.alloc(RotationKeyframe, 3);
-        errdefer engine.allocator.free(rotations);
-
-        const start_rot = zm.Quat{ 0.0, 0.0, 0.0, 1.0 };
-        var mid_rot = zm.Quat{ 0.0, 0.0, 0.0, 1.0 };
-        var end_rot = zm.Quat{ 0.0, 0.0, 0.0, 1.0 };
-
-        if (i > 0) { // Don't animate the root bone
-            // Create "wiggle" by rotating around X axis
-            const axis = zm.Vec{ 1.0, 0.0, 0.0, 1.0 };
-            mid_rot = zm.quatFromNormAxisAngle(axis, 0.3);
-            end_rot = zm.quatFromNormAxisAngle(axis, 0.0);
-        }
-
-        rotations[0] = .{ .time = 0.0, .value = start_rot };
-        rotations[1] = .{ .time = 1.0, .value = mid_rot };
-        rotations[2] = .{ .time = 2.0, .value = end_rot };
-
-        anim.rotations = rotations;
-    }
-
-    // Add animation to mesh
-    try mesh.animations.put("Wiggle", AnimationTrack{
-        .animations = animation_tracks,
-        .duration = 2.0,
-    });
-}
+};
