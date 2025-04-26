@@ -64,12 +64,12 @@ fn setup(e: *mj.Engine) !void {
             std.math.sin(@as(f32, @floatFromInt(i))),
             1.0,
         };
-        var light_builder = e.spawn();
-        light[i] = light_builder.withNewPointLight(color).build();
+        light[i] = e.spawn()
+            .withNewPointLight(color)
+            .build();
         e.addToRoot(light[i]);
 
-        var cube_builder = e.spawn();
-        light_cube[i] = cube_builder
+        light_cube[i] = e.spawn()
             .withStaticMesh(mesh)
             .withScale(zm.f32x4s(0.2 * @as(f32, @floatFromInt(i)) + 0.4))
             .asChildOf(light[i])
