@@ -65,21 +65,20 @@ fn setup(e: *mj.Engine) !void {
             1.0,
         };
         light[i] = e.spawn()
+            .atRoot()
             .withNewPointLight(color)
             .build();
-        e.addToRoot(light[i]);
-
         light_cube[i] = e.spawn()
             .withStaticMesh(mesh)
             .withScale(zm.f32x4s(0.2 * @as(f32, @floatFromInt(i)) + 0.4))
             .asChildOf(light[i])
             .build();
     }
-    const sunlight = e.spawn()
+    _ = e.spawn()
+        .atRoot()
         .withNewDirectionalLight(.{ 0.01, 0.01, 0.01, 0.0 })
         .withPosition(.{ 0.0, -10.0, 5.0, 0.0 })
         .build();
-    e.addToRoot(sunlight);
 }
 
 fn update(e: *mj.Engine) void {

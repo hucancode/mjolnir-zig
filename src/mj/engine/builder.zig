@@ -322,6 +322,11 @@ pub const NodeBuilder = struct {
         return self;
     }
 
+    pub fn atRoot(self: *NodeBuilder) *NodeBuilder {
+        self.engine.parentNode(self.engine.scene.root, self.handle);
+        return self;
+    }
+
     pub fn asChildOf(self: *NodeBuilder, parent: Handle) *NodeBuilder {
         self.engine.parentNode(parent, self.handle);
         return self;
