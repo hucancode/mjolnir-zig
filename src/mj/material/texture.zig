@@ -17,6 +17,37 @@ pub const Texture = struct {
         self.image = try Image.loadFromMemory(data, 4);
     }
 
+    pub fn initFromPath(self: *Texture, path: []const u8) !void {
+        self.image = try Image.loadFromFile(path, 4);
+    }
+
+    pub fn initBuffer(self: *Texture) !void {
+        self.buffer = try context.*.createImageBuffer(
+            self.image.data,
+            .r8g8b8a8_srgb,
+            @intCast(self.image.width),
+            @intCast(self.image.height),
+        );
+        const sampler_info = vk.SamplerCreateInfo{
+            .mag_filter = .linear,
+            .min_filter = .linear,
+            .address_mode_u = .clamp_to_edge,
+            .address_mode_v = .clamp_to_edge,
+            .address_mode_w = .clamp_to_edge,
+            .anisotropy_enable = vk.FALSE,
+            .max_anisotropy = 1.0,
+            .border_color = .int_opaque_white,
+            .unnormalized_coordinates = vk.FALSE,
+            .compare_enable = vk.FALSE,
+            .compare_op = .always,
+            .mipmap_mode = .linear,
+            .mip_lod_bias = 0.0,
+            .min_lod = 0.0,
+            .max_lod = 0.0,
+        };
+        self.sampler = try context.*.vkd.createSampler(&sampler_info, null);
+    }
+
     /// Free resources
     pub fn deinit(self: *Texture) void {
         self.buffer.deinit();

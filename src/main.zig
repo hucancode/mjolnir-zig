@@ -4,6 +4,7 @@ const mj = @import("mj/engine/engine.zig");
 const zm = @import("zmath");
 const Handle = @import("mj/engine/resource.zig").Handle;
 const AnimationPlayMode = @import("mj/geometry/animation.zig").AnimationPlayMode;
+const Geometry = @import("mj/geometry/geometry.zig").Geometry;
 
 const WIDTH = 1280;
 const HEIGHT = 720;
@@ -30,15 +31,20 @@ pub fn main() !void {
 }
 
 fn setup(e: *mj.Engine) !void {
-    const texture = try e.createTextureFromData(@embedFile("assets/statue-1275469_1280.jpg"));
-    const texture_ptr = e.textures.get(texture).?;
-    const material = try e.createMaterial();
-    const material_ptr = e.materials.get(material).?;
-    material_ptr.updateTextures(texture_ptr, texture_ptr, texture_ptr);
-    const mesh = try e.createCube(material);
+    const texture = e.makeTexture()
+        .fromData(@embedFile("assets/statue-1275469_1280.jpg"))
+        .build();
+    const material = e.makeMaterial()
+        .withTexture(texture)
+        .build();
+
+    const mesh = e.makeMesh()
+        .withGeometry(Geometry.cube(.{1.0, 1.0, 1.0, 1.0}))
+        .withMaterial(material)
+        .build();
     e.scene.camera.position = .{ 0.0, 10.0, -15.0, 0.0 };
     e.scene.camera.lookAt(.{ 0.0, 2.5, -5.0, 0.0 });
-    _ = try e.loadGltf("assets/Duck.glb");
+    // _ = try e.loadGltf("assets/Duck.glb");
     const gltf_nodes = try e.loadGltf("assets/CesiumMan.glb");
     for (gltf_nodes) |node| {
         const name = "Anim_0";
@@ -47,7 +53,7 @@ fn setup(e: *mj.Engine) !void {
             continue;
         };
         const ptr = e.nodes.get(node).?;
-        ptr.transform.position = .{5.0, 0.0, 0.0, 0.0};
+        ptr.transform.position = .{0.0, 0.0, 0.0, 0.0};
         ptr.transform.scale = .{3.0, 3.0, 3.0, 3.0};
         ptr.transform.rotation = zm.quatFromNormAxisAngle(.{ 0.0, 1.0, 0.0, 0.0 }, std.math.pi);
     }
@@ -58,17 +64,22 @@ fn setup(e: *mj.Engine) !void {
             std.math.sin(@as(f32, @floatFromInt(i))),
             1.0,
         };
-        light[i] = e.createLightNode(e.createPointLight(color));
+        var light_builder = e.spawn();
+        light[i] = light_builder.withNewPointLight(color).build();
         e.addToRoot(light[i]);
-        light_cube[i] = e.createMeshNode(mesh);
-        const light_cube_ptr = e.nodes.get(light_cube[i]).?;
-        light_cube_ptr.transform.scale = zm.f32x4s(0.2 * @as(f32, @floatFromInt(i)) + 0.4);
-        e.parentNode(light[i], light_cube[i]);
+
+        var cube_builder = e.spawn();
+        light_cube[i] = cube_builder
+            .withStaticMesh(mesh)
+            .withScale(zm.f32x4s(0.2 * @as(f32, @floatFromInt(i)) + 0.4))
+            .asChildOf(light[i])
+            .build();
     }
-    const sunlight = e.createLightNode(e.createDirectionalLight(.{ 0.01, 0.01, 0.01, 0.0 }));
+    const sunlight = e.spawn()
+        .withNewDirectionalLight(.{ 0.01, 0.01, 0.01, 0.0 })
+        .withPosition(.{ 0.0, -10.0, 5.0, 0.0 })
+        .build();
     e.addToRoot(sunlight);
-    const sunlight_ptr = e.nodes.get(sunlight).?;
-    sunlight_ptr.transform.position = .{ 0.0, -10.0, 5.0, 0.0 };
 }
 
 fn update(e: *mj.Engine) void {

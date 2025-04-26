@@ -1,6 +1,8 @@
 const std = @import("std");
 const zm = @import("zmath");
+
 const Allocator = std.mem.Allocator;
+const context = @import("../engine/context.zig").get();
 const ResourcePool = @import("../engine/resource.zig").ResourcePool;
 const Handle = @import("../engine/resource.zig").Handle;
 const Node = @import("../scene/node.zig").Node;
@@ -68,12 +70,23 @@ pub const AnimationPlayMode = enum {
     once,
     pingpong,
 };
+
 pub const Pose = struct {
-    bone_matrices: []zm.Mat,
+    bone_matrices: []zm.Mat = undefined,
     bone_buffer: DataBuffer = undefined,
+    allocator: Allocator,
+
+    pub fn init(self: *Pose, joints_count: u16) !void {
+        self.bone_matrices = try self.allocator.alloc(zm.Mat, joints_count);
+        for(0..joints_count) |i| {
+            self.bone_matrices[i] = zm.identity();
+        }
+        self.bone_buffer = try context.*.mallocHostVisibleBuffer(@sizeOf(zm.Mat) * joints_count, .{ .storage_buffer_bit = true });
+    }
 
     pub fn deinit(self: *Pose) void {
         self.bone_buffer.deinit();
+        self.allocator.free(self.bone_matrices);
     }
 
     pub fn flush(self: *Pose) void {

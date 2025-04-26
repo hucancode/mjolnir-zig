@@ -11,9 +11,9 @@ pub const Transform = struct {
     position: zm.Vec = zm.f32x4s(0),
     rotation: zm.Quat = zm.qidentity(),
     scale: zm.Vec = zm.f32x4s(1),
-    // is_dirty: bool = false,
-    // local_matrix: zm.Mat = zm.identity(),
-    // world_matrix: zm.Mat = zm.identity(),
+    is_dirty: bool = false,
+    local_matrix: zm.Mat = zm.identity(),
+    world_matrix: zm.Mat = zm.identity(),
 
     pub fn toMatrix(self: *const Transform) zm.Mat {
         const t = zm.translationV(self.position);
@@ -35,6 +35,7 @@ pub const Node = struct {
     children: ArrayList(Handle),
     allocator: Allocator,
     transform: Transform,
+    name: ?[]const u8 = null,  // Added for debugging/identification
     data: union(enum) {
         light: Handle,
         skeletal_mesh: struct {
@@ -50,6 +51,14 @@ pub const Node = struct {
         self.children = ArrayList(Handle).init(allocator);
         self.allocator = allocator;
         self.transform = .{};
+        self.name = null;
+    }
+
+    pub fn setName(self: *Node, name: []const u8) !void {
+        if (self.name) |old_name| {
+            self.allocator.free(old_name);
+        }
+        self.name = try self.allocator.dupe(u8, name);
     }
 
     pub fn deinit(self: *Node) void {

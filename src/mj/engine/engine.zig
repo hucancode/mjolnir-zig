@@ -16,10 +16,10 @@ const AnimationChannel = @import("../geometry/animation.zig").AnimationChannel;
 const AnimationClip = @import("../geometry/animation.zig").AnimationClip;
 const AnimationInstance = @import("../geometry/animation.zig").AnimationInstance;
 const SkeletalMesh = @import("../geometry/skeletal_mesh.zig").SkeletalMesh;
-const SkinnedVertex = @import("../geometry/skeletal_mesh.zig").SkinnedVertex;
+const SkinnedVertex = @import("../geometry/geometry.zig").SkinnedVertex;
 const Bone = @import("../geometry/skeletal_mesh.zig").Bone;
 const StaticMesh = @import("../geometry/static_mesh.zig").StaticMesh;
-const Vertex = @import("../geometry/static_mesh.zig").Vertex;
+const Vertex = @import("../geometry/geometry.zig").Vertex;
 const Material = @import("../material/pbr.zig").Material;
 const buildMaterial = @import("../material/pbr.zig").buildMaterial;
 const SkinnedMaterial = @import("../material/skinned_pbr.zig").SkinnedMaterial;
@@ -39,13 +39,22 @@ const Renderer = @import("renderer.zig").Renderer;
 const ResourcePool = @import("resource.zig").ResourcePool;
 const SceneUniform = @import("renderer.zig").SceneUniform;
 const SwapchainSupport = @import("context.zig").SwapchainSupport;
+const Pose = @import("../geometry/animation.zig").Pose;
+const TextureBuilder = @import("builder.zig").TextureBuilder;
+const MaterialBuilder = @import("builder.zig").MaterialBuilder;
+const SkinnedMaterialBuilder = @import("builder.zig").SkinnedMaterialBuilder;
+const MeshBuilder = @import("builder.zig").MeshBuilder;
+const SkeletalMeshBuilder = @import("builder.zig").SkeletalMeshBuilder;
+const NodeBuilder = @import("builder.zig").NodeBuilder;
+const SkinnedGeometry = @import("../geometry/geometry.zig").SkinnedGeometry;
+const Geometry = @import("../geometry/geometry.zig").Geometry;
 
 const context = @import("context.zig").get();
 
 const RENDER_FPS = 60.0;
 const FRAME_TIME = 1.0 / RENDER_FPS;
 const FRAME_TIME_NANO: u64 = @intFromFloat(FRAME_TIME * 1_000_000_000.0);
-const UPDATE_FPS = 30.0;
+const UPDATE_FPS = 60.0;
 const UPDATE_FRAME_TIME = 1.0 / UPDATE_FPS;
 const UPDATE_FRAME_TIME_NANO: u64 = @intFromFloat(UPDATE_FRAME_TIME * 1_000_000_000.0);
 
@@ -59,14 +68,40 @@ pub const Engine = struct {
     meshes: ResourcePool(StaticMesh),
     skeletal_meshes: ResourcePool(SkeletalMesh),
     materials: ResourcePool(Material),
+    in_transaction: bool = false,
+    dirty_transforms: std.ArrayList(Handle),
     skinned_materials: ResourcePool(SkinnedMaterial),
     textures: ResourcePool(Texture),
     lights: ResourcePool(Light),
     nodes: ResourcePool(Node),
     allocator: Allocator,
 
+    pub fn beginTransaction(self: *Engine) void {
+        self.in_transaction = true;
+    }
+
+    pub fn commitTransaction(self: *Engine) void {
+        self.in_transaction = false;
+        // Process all dirty transforms
+        for (self.dirty_transforms.items) |handle| {
+            if (self.nodes.get(handle)) |node| {
+                _ = node;
+                // Here you would update any GPU buffers or do other work
+                // that needs to happen when transforms change
+            }
+        }
+        self.dirty_transforms.clearRetainingCapacity();
+    }
+
+    pub fn markTransformDirty(self: *Engine, node: Handle) void {
+        if (self.in_transaction) {
+            self.dirty_transforms.append(node) catch {};
+        }
+    }
+
     pub fn init(self: *Engine, allocator: Allocator, width: u32, height: u32, title: [:0]const u8) !void {
         self.allocator = allocator;
+        self.dirty_transforms = std.ArrayList(Handle).init(allocator);
         _ = glfw.setErrorCallback(glfwErrorCallback);
         try glfw.init();
         if (!glfw.isVulkanSupported()) {
@@ -104,7 +139,7 @@ pub const Engine = struct {
 
     fn buildScene(self: *Engine) !void {
         try self.scene.init();
-        self.scene.root = self.createNode();
+        self.scene.root = self.spawn().build();
     }
 
     fn buildRenderer(self: *Engine) !void {
@@ -341,6 +376,12 @@ pub const Engine = struct {
         return true;
     }
 
+    pub fn setNodeName(self: *Engine, node: Handle, name: []const u8) !void {
+        if (self.nodes.get(node)) |node_ptr| {
+            try node_ptr.setName(name);
+        }
+    }
+
     pub fn deinit(self: *Engine) !void {
         try context.*.vkd.deviceWaitIdle();
         for (self.nodes.entries.items) |*entry| {
@@ -391,161 +432,40 @@ pub const Engine = struct {
         self.parentNode(self.scene.root, node);
     }
 
-    pub fn createSkeletalMesh(
-        self: *Engine,
-        vertices: []const SkinnedVertex,
-        indices: []const u32,
-        material: Handle,
-    ) !Handle {
-        const handle = self.skeletal_meshes.malloc();
-        const mesh = self.skeletal_meshes.get(handle).?;
-        mesh.vertices_len = @intCast(vertices.len);
-        mesh.indices_len = @intCast(indices.len);
-        mesh.material = material;
-        mesh.vertex_buffer = try context.*.createLocalBuffer(std.mem.sliceAsBytes(vertices), .{ .vertex_buffer_bit = true });
-        mesh.index_buffer = try context.*.createLocalBuffer(std.mem.sliceAsBytes(indices), .{ .index_buffer_bit = true });
-        return handle;
+    pub fn makeMaterial(self: *Engine) *MaterialBuilder {
+        const builder = self.allocator.create(MaterialBuilder) catch unreachable;
+        builder.init(self);
+        return builder;
     }
 
-    /// Create a new texture from raw data
-    pub fn createTextureFromData(self: *Engine, data: []const u8) !Handle {
-        // Allocate texture
-        const handle = self.textures.malloc();
-        const texture = self.textures.get(handle) orelse return error.ResourceAllocationFailed;
-        try texture.initFromData(data);
-        texture.buffer = try context.*.createImageBuffer(
-            texture.image.data,
-            .r8g8b8a8_srgb,
-            @intCast(texture.image.width),
-            @intCast(texture.image.height),
-        );
-        const sampler_info = vk.SamplerCreateInfo{
-            .mag_filter = .linear,
-            .min_filter = .linear,
-            .address_mode_u = .clamp_to_edge,
-            .address_mode_v = .clamp_to_edge,
-            .address_mode_w = .clamp_to_edge,
-            .anisotropy_enable = vk.FALSE,
-            .max_anisotropy = 1.0,
-            .border_color = .int_opaque_white,
-            .unnormalized_coordinates = vk.FALSE,
-            .compare_enable = vk.FALSE,
-            .compare_op = .always,
-            .mipmap_mode = .linear,
-            .mip_lod_bias = 0.0,
-            .min_lod = 0.0,
-            .max_lod = 0.0,
-        };
-        texture.sampler = try context.*.vkd.createSampler(&sampler_info, null);
-        std.debug.print("Texture created {d}\n", .{handle.index});
-        return handle;
+    pub fn makeSkinnedMaterial(self: *Engine) *SkinnedMaterialBuilder {
+        const builder = self.allocator.create(SkinnedMaterialBuilder ) catch unreachable;
+        builder.init(self);
+        return builder;
     }
 
-    /// Create a new PBR material
-    pub fn createMaterial(self: *Engine) !Handle {
-        const handle = self.materials.malloc();
-        const mat = self.materials.get(handle) orelse return error.ResourceAllocationFailed;
-        const vertex_code align(@alignOf(u32)) = @embedFile("shaders/pbr/vert.spv").*;
-        const fragment_code align(@alignOf(u32)) = @embedFile("shaders/pbr/frag.spv").*;
-        try mat.initDescriptorSet();
-        std.debug.print("Material descriptor set initialized\n", .{});
-        try buildMaterial(self, mat, &vertex_code, &fragment_code);
-        std.debug.print("Material created\n", .{});
-        return handle;
-    }
-    /// Create a new skinned material
-    pub fn createSkinnedMaterial(self: *Engine, max_bones: u32) !Handle {
-        std.debug.print("Creating skinned material with max_bones: {d}\n", .{max_bones});
-        const handle = self.skinned_materials.malloc();
-        std.debug.print("Got material handle: {any}\n", .{handle});
-
-        const mat = self.skinned_materials.get(handle) orelse {
-            std.debug.print("Failed to get material from handle\n", .{});
-            return error.ResourceAllocationFailed;
-        };
-        std.debug.print("Got material from handle\n", .{});
-
-        const vertex_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr/vert.spv").*;
-        const fragment_code align(@alignOf(u32)) = @embedFile("shaders/skinned_pbr/frag.spv").*;
-        std.debug.print("Loaded shader code\n", .{});
-
-        mat.max_bones = max_bones;
-        std.debug.print("Set max_bones\n", .{});
-
-        std.debug.print("Initializing descriptor set\n", .{});
-        try mat.initDescriptorSet();
-        std.debug.print("Descriptor set initialized\n", .{});
-
-        std.debug.print("Building skinned material\n", .{});
-        try buildSkinnedMaterial(self, mat, &vertex_code, &fragment_code);
-        std.debug.print("Skinned material built successfully\n", .{});
-
-        return handle;
+    pub fn makeMesh(self: *Engine) *MeshBuilder {
+        const builder = self.allocator.create(MeshBuilder) catch unreachable;
+        builder.init(self);
+        return builder;
     }
 
-    pub fn createCube(self: *Engine, material: Handle) !Handle {
-        const ret = self.meshes.malloc();
-        const mesh_ptr = self.meshes.get(ret).?;
-        try mesh_ptr.buildCube(material, .{ 0.0, 0.0, 0.0, 0.0 });
-        return ret;
+    pub fn makeSkeletalMesh(self: *Engine) *SkeletalMeshBuilder {
+        const builder = self.allocator.create(SkeletalMeshBuilder) catch unreachable;
+        builder.init(self);
+        return builder;
     }
 
-    pub fn createMesh(self: *Engine, vertices: []const Vertex, indices: []const u32, material: Handle) !Handle {
-        const ret = self.meshes.malloc();
-        const mesh_ptr = self.meshes.get(ret).?;
-        try mesh_ptr.buildMesh(vertices, indices, material);
-        return ret;
+    pub fn makeTexture(self: *Engine) *TextureBuilder {
+        const builder = self.allocator.create(TextureBuilder) catch unreachable;
+        builder.init(self);
+        return builder;
     }
 
-    pub fn createPointLight(self: *Engine, color: zm.Vec) Handle {
-        const ret = self.lights.malloc();
-        const light_ptr = self.lights.get(ret).?;
-        light_ptr.data = .point;
-        light_ptr.color = color;
-        return ret;
-    }
-
-    pub fn createDirectionalLight(self: *Engine, color: zm.Vec) Handle {
-        const ret = self.lights.malloc();
-        const light_ptr = self.lights.get(ret).?;
-        light_ptr.data = .directional;
-        light_ptr.color = color;
-        return ret;
-    }
-
-    // Node methods
-    pub fn createNode(self: *Engine) Handle {
-        const handle = self.nodes.malloc();
-        if (self.nodes.get(handle)) |node| {
-            node.init(self.allocator);
-            node.parent = handle;
-            node.data = .none;
-        }
-        return handle;
-    }
-
-    pub fn createMeshNode(self: *Engine, mesh: Handle) Handle {
-        const handle = self.createNode();
-        if (self.nodes.get(handle)) |node| {
-            node.data = .{ .static_mesh = mesh };
-        }
-        return handle;
-    }
-
-    pub fn createSkeletalMeshNode(self: *Engine, mesh: Handle) Handle {
-        const handle = self.createNode();
-        if (self.nodes.get(handle)) |node| {
-            node.data = .{ .skeletal_mesh = mesh };
-        }
-        return handle;
-    }
-
-    pub fn createLightNode(self: *Engine, light: Handle) Handle {
-        const handle = self.createNode();
-        if (self.nodes.get(handle)) |node| {
-            node.data = .{ .light = light };
-        }
-        return handle;
+    pub fn spawn(self: *Engine) *NodeBuilder {
+        const builder = self.allocator.create(NodeBuilder) catch unreachable;
+        builder.init(self);
+        return builder;
     }
 
     pub fn deinitNodeCascade(self: *Engine, handle: Handle) void {
@@ -647,7 +567,7 @@ pub const Engine = struct {
 
     fn processGltfNode(self: *Engine, data: *zcgltf.Data, node: *zcgltf.Node, parent: Handle) !Handle {
         std.debug.print("Processing GLTF node (parent handle: {d})\n", .{parent.index});
-        const handle = self.createNode();
+        const handle = self.spawn().build();
         const engine_node = self.nodes.get(handle) orelse return handle;
 
         if (node.has_translation != 0) {
@@ -703,7 +623,7 @@ pub const Engine = struct {
     }
 
     fn processStaticPrimitive(self: *Engine, _: *zcgltf.Mesh, primitive: *zcgltf.Primitive, node: Handle) !void {
-        const material_handle = try self.createMaterial();
+        const material_handle = self.makeMaterial().build();
         const material = self.materials.get(material_handle) orelse return error.ResourceAllocationFailed;
         var vertices = std.ArrayList(Vertex).init(self.allocator);
         defer vertices.deinit();
@@ -741,7 +661,10 @@ pub const Engine = struct {
             try indices.resize(index_count);
             _ = accessor.unpackIndices(indices.items);
         }
-        const mesh_handle = try self.createMesh(vertices.items, indices.items, material_handle);
+        const mesh_handle = self.makeMesh()
+            .withGeometry(Geometry.make(vertices.items, indices.items))
+            .withMaterial(material_handle)
+            .build();
         if (self.nodes.get(node)) |engine_node| {
             engine_node.data = .{ .static_mesh = mesh_handle };
         }
@@ -781,7 +704,7 @@ pub const Engine = struct {
         }
 
         // Find the root bone (the one that isn't a child of any other bone)
-        var root_bone: ?u32 = null;
+        var root_bone: ?u16 = null;
         for (0..skin.joints_count) |i| {
             if (!is_child.isSet(@intCast(i))) {
                 if (root_bone != null) {
@@ -799,7 +722,7 @@ pub const Engine = struct {
         }
 
         std.debug.print("Creating skinned material...\n", .{});
-        const material_handle = try self.createSkinnedMaterial(@intCast(skin.joints_count));
+        const material_handle = self.makeSkinnedMaterial().build();
         var vertices = std.ArrayList(SkinnedVertex).init(self.allocator);
         defer vertices.deinit();
         var indices = std.ArrayList(u32).init(self.allocator);
@@ -863,7 +786,10 @@ pub const Engine = struct {
         }
 
         std.debug.print("Creating skeletal mesh\n", .{});
-        const mesh_handle = try self.createSkeletalMesh(vertices.items, indices.items, material_handle);
+        const mesh_handle = self.makeSkeletalMesh()
+            .withGeometry(SkinnedGeometry.make(vertices.items, indices.items))
+            .withMaterial(material_handle)
+            .build();
         if (self.skeletal_meshes.get(mesh_handle)) |mesh| {
             mesh.bones = bones;
             mesh.root_bone = root_bone.?;
@@ -872,18 +798,14 @@ pub const Engine = struct {
         try self.processAnimationsForMesh(data, skin, mesh_handle);
         const engine_node = self.nodes.get(node).?;
         std.debug.print("Setting up node data for skeletal mesh\n", .{});
-        const bone_matrices = try self.allocator.alloc(zm.Mat, skin.joints_count);
-        for(0..skin.joints_count) |i| {
-            bone_matrices[i] = zm.identity();
-        }
-        const bone_gpu_buffer = try context.*.mallocHostVisibleBuffer(@sizeOf(zm.Mat) * skin.joints_count, .{ .storage_buffer_bit = true });
+        var pose: Pose = .{
+            .allocator = self.allocator,
+        };
+        try pose.init(@intCast(skin.joints_count));
         engine_node.data = .{
             .skeletal_mesh = .{
                 .handle = mesh_handle,
-                .pose = .{
-                    .bone_matrices = bone_matrices,
-                    .bone_buffer = bone_gpu_buffer,
-                },
+                .pose = pose,
             },
         };
         std.debug.print("Loading material textures\n", .{});
@@ -897,9 +819,10 @@ pub const Engine = struct {
         if (img.uri) |uri| {
             const texture_data = try std.fs.cwd().readFileAlloc(self.allocator, std.mem.sliceTo(uri, 0), std.math.maxInt(usize));
             defer self.allocator.free(texture_data);
-            const texture_handle = try self.createTextureFromData(texture_data);
+            const texture_handle = self.makeTexture()
+                .fromData(texture_data)
+                .build();
             const texture_ptr = self.textures.get(texture_handle).?;
-            material.albedo = texture_handle;
             material.updateTextures(texture_ptr, texture_ptr, texture_ptr);
         } else if (img.buffer_view) |buffer_view| {
             const buffer = buffer_view.buffer;
@@ -907,9 +830,10 @@ pub const Engine = struct {
             const size = buffer_view.size;
             const data_ptr: [*]u8 = @ptrCast(buffer.data);
             const data = data_ptr[offset .. offset + size];
-            const texture_handle = try self.createTextureFromData(data);
+            const texture_handle = self.makeTexture()
+                .fromData(data)
+                .build();
             const texture_ptr = self.textures.get(texture_handle).?;
-            material.albedo = texture_handle;
             material.updateTextures(texture_ptr, texture_ptr, texture_ptr);
         }
     }
@@ -954,7 +878,21 @@ pub const Engine = struct {
         return result;
     }
 
-    pub fn playAnimation(self: *Engine, node: Handle, name: []const u8, mode: AnimationPlayMode) !void {
+    // Builder pattern support
+pub fn spawnNode(self: *Engine) *@import("builder.zig").NodeBuilder {
+    const builder = self.allocator.create(@import("builder.zig").NodeBuilder) catch unreachable;
+    builder.* = @import("builder.zig").NodeBuilder.init(self);
+    return builder;
+}
+
+pub fn makeAnimator(self: *Engine, node: Handle) *@import("builder.zig").AnimationBuilder {
+    const builder = self.allocator.create(@import("builder.zig").AnimationBuilder) catch unreachable;
+    builder.* = @import("builder.zig").AnimationBuilder.init(self, node);
+    return builder;
+}
+
+// Original playAnimation with improved error handling
+pub fn playAnimation(self: *Engine, node: Handle, name: []const u8, mode: AnimationPlayMode) !void {
         const node_ptr = self.nodes.get(node) orelse return error.InvalidNode;
         if (node_ptr.data != .skeletal_mesh) {
             return error.NotASkeletalMesh;

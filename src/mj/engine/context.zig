@@ -42,7 +42,7 @@ pub const ENABLE_VALIDATION_LAYERS = true;
 pub const VALIDATION_LAYERS = if (ENABLE_VALIDATION_LAYERS) [_][*:0]const u8{
     "VK_LAYER_KHRONOS_validation",
 } else [_][*:0]const u8{};
-pub const ACTIVE_MATERIAL_COUNT = 10; // normally we would want around 1000
+pub const ACTIVE_MATERIAL_COUNT = 1000; // normally we would want around 1000
 pub const MAX_SAMPLER_PER_MATERIAL = 3; // albedo, roughness, metalic
 pub const MAX_SAMPLER_COUNT = ACTIVE_MATERIAL_COUNT * MAX_SAMPLER_PER_MATERIAL;
 pub const SCENE_UNIFORM_COUNT = 3; // view, proj, time
