@@ -49,8 +49,8 @@ fn setup(e: *mj.Engine) !void {
     for (gltf_nodes) |node| {
         const name = "Anim_0";
         e.playAnimation(node, name, .loop) catch {
-            e.unparentNode(node);
-            continue;
+            // e.unparentNode(node);
+            // continue;
         };
         const ptr = e.nodes.get(node).?;
         ptr.transform.position = .{0.0, 0.0, 0.0, 0.0};

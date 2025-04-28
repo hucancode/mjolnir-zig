@@ -558,24 +558,19 @@ pub const Engine = struct {
         const handle = self.spawn().build();
         const engine_node = self.nodes.get(handle) orelse return handle;
         if (node.has_translation != 0) {
-            std.debug.print("Node has translation\n", .{});
             engine_node.transform.position = zm.loadArr3w(node.translation, 1.0);
         }
         if (node.has_rotation != 0) {
-            std.debug.print("Node has rotation\n", .{});
             engine_node.transform.rotation = zm.loadArr4(node.rotation);
         }
         if (node.has_scale != 0) {
-            std.debug.print("Node has scale\n", .{});
             engine_node.transform.scale = zm.loadArr3w(node.scale, 1.0);
         }
         if (node.has_matrix != 0) {
-            std.debug.print("Node has matrix\n", .{});
             const mat = zm.matFromArr(node.matrix);
             engine_node.transform.fromMatrix(mat);
         }
         if (node.mesh) |mesh| {
-            std.debug.print("Node has mesh\n", .{});
             if (node.skin) |skin| {
                 try self.processGltfSkinnedMesh(mesh, skin, handle, data);
             } else {
@@ -700,7 +695,6 @@ pub const Engine = struct {
             std.debug.print("Warning: No root bone found, using bone 0\n", .{});
             root_bone = 0;
         }
-        std.debug.print("Creating skinned material...\n", .{});
         const material_handle = self.makeSkinnedMaterial().build();
         var vertices = std.ArrayList(SkinnedVertex).init(self.allocator);
         defer vertices.deinit();
@@ -714,41 +708,34 @@ pub const Engine = struct {
             }
             break :blk 0;
         };
-        std.debug.print("Initializing {d} vertices with default values\n", .{vertex_count});
         try vertices.resize(vertex_count);
-        std.debug.print("Processing {d} vertex attributes\n", .{primitive.attributes_count});
         for (primitive.attributes[0..primitive.attributes_count]) |attribute| {
             const accessor = attribute.data;
             if (attribute.type == .position) {
-                std.debug.print("Processing positions\n", .{});
                 const positions = try self.unpackAccessorFloats(3, accessor);
                 defer self.allocator.free(positions);
                 for (positions, 0..) |pos, i| {
                     vertices.items[i].position = pos;
                 }
             } else if (attribute.type == .normal) {
-                std.debug.print("Processing normals\n", .{});
                 const normals = try self.unpackAccessorFloats(3, accessor);
                 defer self.allocator.free(normals);
                 for (normals, 0..) |normal, i| {
                     vertices.items[i].normal = normal;
                 }
             } else if (attribute.type == .texcoord) {
-                std.debug.print("Processing UVs\n", .{});
                 const uvs = try self.unpackAccessorFloats(2, accessor);
                 defer self.allocator.free(uvs);
                 for (uvs, 0..) |uv, i| {
                     vertices.items[i].uv = .{ uv[0], uv[1] };
                 }
             } else if (attribute.type == .joints) {
-                std.debug.print("Processing joints with {} x {} components \n", .{accessor.component_type, accessor.type});
                 const joints = try self.unpackAccessorUint(4, accessor);
                 defer self.allocator.free(joints);
                 for (joints, 0..) |joint, i| {
                     vertices.items[i].joints = joint;
                 }
             } else if (attribute.type == .weights) {
-                std.debug.print("Processing weights\n", .{});
                 const weights = try self.unpackAccessorFloats(4, accessor);
                 defer self.allocator.free(weights);
                 for (weights, 0..) |weight, i| {
@@ -758,7 +745,6 @@ pub const Engine = struct {
         }
         if (primitive.indices) |accessor| {
             const index_count = accessor.count;
-            std.debug.print("Processing {d} indices\n", .{index_count});
             try indices.resize(index_count);
             _ = accessor.unpackIndices(indices.items);
         }
@@ -771,10 +757,10 @@ pub const Engine = struct {
             mesh.bones = bones;
             mesh.root_bone = root_bone.?;
         }
-        std.debug.print("Processing animations\n", .{});
+        // std.debug.print("Processing animations\n", .{});
         try self.processAnimationsForMesh(data, skin, mesh_handle);
         const engine_node = self.nodes.get(node).?;
-        std.debug.print("Setting up node data for skeletal mesh\n", .{});
+        // std.debug.print("Setting up node data for skeletal mesh\n", .{});
         var pose: Pose = .{
             .allocator = self.allocator,
         };
@@ -785,7 +771,7 @@ pub const Engine = struct {
                 .pose = pose,
             },
         };
-        std.debug.print("Loading material textures\n", .{});
+        // std.debug.print("Loading material textures\n", .{});
         try self.loadMaterialTextures(primitive, self.skinned_materials.get(material_handle).?);
     }
 
@@ -817,7 +803,7 @@ pub const Engine = struct {
 
     fn unpackAccessorUint(self: *Engine, comptime components: usize, accessor: *zcgltf.Accessor) ![][components]u32 {
         const count = accessor.count;
-        std.debug.print("Unpacking accessor with {d} elements, {d} components\n", .{ count, components });
+        // std.debug.print("Unpacking accessor with {d} elements, {d} components\n", .{ count, components });
         const result = try self.allocator.alloc([components]u32, count);
         for (0..count) |i| {
             const success = accessor.readUint(i, &result[i]);
@@ -831,17 +817,15 @@ pub const Engine = struct {
     fn unpackAccessorFloats(self: *Engine, comptime components: usize, accessor: *zcgltf.Accessor) ![][components]f32 {
         const count = accessor.count;
         const float_count = count * components;
-        std.debug.print("Unpacking accessor with {d} elements, {d} components ({d} total floats)\n", .{ count, components, float_count });
+        // std.debug.print("Unpacking accessor with {d} elements, {d} components ({d} total floats)\n", .{ count, components, float_count });
         const floats = try self.allocator.alloc(f32, float_count);
         defer self.allocator.free(floats);
         const unpacked_count = accessor.unpackFloats(floats);
-        std.debug.print("Unpacked {d} floats\n", .{unpacked_count.len});
         if (unpacked_count.len != count * components) {
-            std.debug.print("ERROR: Unpacked count ({d}) doesn't match expected count ({d})\n", .{ unpacked_count.len, count * components });
             return error.InvalidAccessorData;
         }
         const result = try self.allocator.alloc([components]f32, count);
-        std.debug.print("Repackaging {d} floats into {d} vectors of size {d}\n", .{ float_count, count, components });
+        // std.debug.print("Repackaging {d} floats into {d} vectors of size {d}\n", .{ float_count, count, components });
         for (0..count) |i| {
             for (0..components) |j| {
                 result[i][j] = floats[i * components + j];
@@ -892,113 +876,101 @@ pub const Engine = struct {
     }
 
     fn processAnimationsForMesh(self: *Engine, data: *zcgltf.Data, skin: *zcgltf.Skin, mesh_handle: Handle) !void {
-        std.debug.print("Starting processAnimationsForMesh for mesh handle {d}\n", .{mesh_handle.index});
+        // std.debug.print("Starting processAnimationsForMesh for mesh handle {d}\n", .{mesh_handle.index});
         const mesh = self.skeletal_meshes.get(mesh_handle) orelse {
-            std.debug.print("Error: Invalid mesh handle {d}\n", .{mesh_handle.index});
+            // std.debug.print("Error: Invalid mesh handle {d}\n", .{mesh_handle.index});
             return error.InvalidMesh;
         };
         if (data.animations_count == 0) {
-            std.debug.print("No animations found in GLTF data\n", .{});
+            // std.debug.print("No animations found in GLTF data\n", .{});
             return;
         }
-        std.debug.print("Processing {d} animations\n", .{data.animations_count});
+        // std.debug.print("Processing {d} animations\n", .{data.animations_count});
         const animations = data.animations.?[0..data.animations_count];
         var clips = try self.allocator.alloc(animation.Clip, data.animations_count);
         errdefer self.allocator.free(clips);
-        std.debug.print("Allocated space for {d} animation clips\n", .{data.animations_count});
+        // std.debug.print("Allocated space for {d} animation clips\n", .{data.animations_count});
         for (animations, 0..) |*gltf_anim, i| {
-            std.debug.print("Processing animation {d}/{d}\n", .{ i + 1, data.animations_count });
+            // std.debug.print("Processing animation {d}/{d}\n", .{ i + 1, data.animations_count });
             var clip = &clips[i];
             if (std.mem.span(gltf_anim.name)) |name| {
-                std.debug.print("Animation name: {s}\n", .{name});
+                // std.debug.print("Animation name: {s}\n", .{name});
                 clip.name = try self.allocator.dupe(u8, name);
             } else {
-                std.debug.print("Unnamed animation\n", .{});
+                // std.debug.print("Unnamed animation\n", .{});
                 clip.name = try self.allocator.dupe(u8, "unnamed");
             }
-            std.debug.print("Allocating space for {d} bone channels\n", .{mesh.bones.len});
+            // std.debug.print("Allocating space for {d} bone channels\n", .{mesh.bones.len});
             clip.animations = try self.allocator.alloc(animation.Channel, mesh.bones.len);
             // Initialize all channels with empty arrays
-            for (clip.animations, 0..) |*channel, bone_idx| {
+            for (clip.animations) |*channel| {
                 channel.position = &[_]animation.Keyframe(zm.Vec){};
                 channel.rotation = &[_]animation.Keyframe(zm.Quat){};
                 channel.scale = &[_]animation.Keyframe(zm.Vec){};
-                std.debug.print("Initialized empty channels for bone {d}\n", .{bone_idx});
             }
             var max_time: f32 = 0;
-            std.debug.print("Processing {d} animation channels\n", .{gltf_anim.channels_count});
+            // std.debug.print("Processing {d} animation channels\n", .{gltf_anim.channels_count});
             // Process animation channels
             for (gltf_anim.channels[0..gltf_anim.channels_count], 0..) |*channel, chan_idx| {
-                std.debug.print("Processing channel {d}/{d}\n", .{ chan_idx + 1, gltf_anim.channels_count });
-                if (channel.target_node == null) {
-                    std.debug.print("Skipping channel {d} - null target node\n", .{chan_idx});
-                    continue;
-                }
+                _ = chan_idx;
+                // std.debug.print("Processing channel {d}/{d}\n", .{ chan_idx + 1, gltf_anim.channels_count });
+                const target_node = channel.target_node orelse continue;
                 const sampler = channel.sampler;
                 const input_accessor = sampler.input;
                 const output_accessor = sampler.output;
-                std.debug.print("Unpacking time values for channel {d}\n", .{chan_idx});
+                // std.debug.print("Unpacking time values for channel {d}\n", .{chan_idx});
                 const times = try self.unpackAccessorFloats(1, input_accessor);
                 defer self.allocator.free(times);
-                var target_bone: ?u32 = null;
-                // Find corresponding bone index
-                for (skin.joints[0..skin.joints_count], 0..) |node, node_idx| {
-                    if (node == channel.target_node.?) {
-                        target_bone = @intCast(node_idx);
-                        std.debug.print("Found target bone {d} for channel {d}\n", .{ node_idx, chan_idx });
-                        break;
-                    }
-                }
-                if (target_bone == null) {
-                    std.debug.print("No matching bone found for channel {d}, skipping\n", .{chan_idx});
-                    continue;
-                }
                 // Update max time if needed
                 for (times) |time| {
                     if (time[0] > max_time) max_time = time[0];
                 }
+                const target_bone = std.mem.indexOfScalar(
+                    *zcgltf.Node,
+                    skin.joints[0..skin.joints_count],
+                    target_node) orelse continue;
                 switch (channel.target_path) {
                     .translation => {
-                        std.debug.print("Processing translation channel for bone {d}\n", .{target_bone.?});
+                        // std.debug.print("Processing translation channel for bone {d}\n", .{target_bone.?});
                         const values = try self.unpackAccessorFloats(3, output_accessor);
                         defer self.allocator.free(values);
                         var keyframes = try self.allocator.alloc(animation.Keyframe(zm.Vec), times.len);
-                        std.debug.print("Creating {d} translation keyframes\n", .{times.len});
+                        // std.debug.print("Creating {d} translation keyframes\n", .{times.len});
                         for (times, values, 0..) |time, value, j| {
                             keyframes[j] = .{
                                 .time = time[0],
                                 .value = zm.loadArr3w(value, 1.0),
                             };
                         }
-                        clip.animations[target_bone.?].position = keyframes;
+                        clip.animations[target_bone].position = keyframes;
                     },
                     .rotation => {
-                        std.debug.print("Processing rotation channel for bone {d}\n", .{target_bone.?});
+                        // std.debug.print("Processing rotation channel for bone {d}\n", .{target_bone.?});
                         const values = try self.unpackAccessorFloats(4, output_accessor);
                         defer self.allocator.free(values);
                         var keyframes = try self.allocator.alloc(animation.Keyframe(zm.Quat), times.len);
-                        std.debug.print("Creating {d} rotation keyframes\n", .{times.len});
+                        // std.debug.print("Creating {d} rotation keyframes\n", .{times.len});
                         for (times, values, 0..) |time, value, j| {
                             keyframes[j] = .{
                                 .time = time[0],
                                 .value = zm.loadArr4(value),
                             };
                         }
-                        clip.animations[target_bone.?].rotation = keyframes;
+                        clip.animations[target_bone].rotation = keyframes;
                     },
                     .scale => {
-                        std.debug.print("Processing scale channel for bone {d}\n", .{target_bone.?});
+                        // std.debug.print("Processing scale channel for bone {d}\n", .{target_bone.?});
                         const values = try self.unpackAccessorFloats(3, output_accessor);
                         defer self.allocator.free(values);
                         var keyframes = try self.allocator.alloc(animation.Keyframe(zm.Vec), times.len);
-                        std.debug.print("Creating {d} scale keyframes\n", .{times.len});
+                        // std.debug.print("Creating {d} scale keyframes\n", .{times.len});
                         for (times, values, 0..) |time, value, j| {
                             keyframes[j] = .{
                                 .time = time[0],
                                 .value = zm.loadArr3w(value, 1.0),
                             };
                         }
-                        clip.animations[target_bone.?].scale = keyframes;
+                        clip.animations[target_bone].scale = keyframes;
                     },
                     else => {
                         std.debug.print("Skipping unsupported animation channel type\n", .{});
