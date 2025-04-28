@@ -59,13 +59,13 @@ fn compareKeyframes(comptime T: type) fn (f32, Keyframe(T)) std.math.Order {
     return S.predicate;
 }
 
-pub const AnimationStatus = enum {
+pub const Status = enum {
     playing,
     paused,
     stopped,
 };
 
-pub const AnimationPlayMode = enum {
+pub const PlayMode = enum {
     loop,
     once,
     pingpong,
@@ -94,14 +94,38 @@ pub const Pose = struct {
     }
 };
 
-pub const AnimationInstance = struct {
+pub const Instance = struct {
     clip: u32,
-    mode: AnimationPlayMode,
-    status: AnimationStatus,
+    mode: PlayMode,
+    status: Status,
     time: f32,
     duration: f32,
 
-    pub fn update(self: *AnimationInstance, delta_time: f32) void {
+    pub fn pause(self: *Instance) void {
+        self.status = .paused;
+    }
+
+    pub fn play(self: *Instance) void {
+        self.status = .playing;
+    }
+
+    pub fn toggle(self: *Instance) void {
+        switch (self.status) {
+            .playing => self.pause(),
+            .paused => self.play(),
+            .stopped => self.play(),
+        }
+    }
+
+    pub fn stop(self: *Instance) void {
+        self.status = .stopped;
+        self.time = 0;
+    }
+
+    pub fn update(self: *Instance, delta_time: f32) void {
+        if (self.status != .playing) {
+            return;
+        }
         switch (self.mode) {
             .loop => {
                 self.time += delta_time;
@@ -124,18 +148,18 @@ pub const AnimationInstance = struct {
     }
 };
 
-pub const AnimationClip = struct {
+pub const Clip = struct {
     name: []const u8,
     duration: f32,
-    animations: []AnimationChannel,
+    animations: []Channel,
 };
 
-pub const AnimationChannel = struct {
+pub const Channel = struct {
     position: []Keyframe(zm.Vec) = undefined,
     rotation: []Keyframe(zm.Quat) = undefined,
     scale: []Keyframe(zm.Vec),
 
-    pub fn deinit(self: *AnimationChannel, allocator: Allocator) void {
+    pub fn deinit(self: *Channel, allocator: Allocator) void {
         allocator.free(self.position);
         allocator.free(self.rotation);
         allocator.free(self.scale);
@@ -149,27 +173,27 @@ pub const AnimationChannel = struct {
         return zm.slerp(a, b, t);
     }
 
-    pub fn update(self: *AnimationChannel, t: f32, target: *Transform) void {
+    pub fn update(self: *Channel, t: f32, target: *Transform) void {
         if (self.position.len > 0) {
-            target.position = sampleKeyframe(zm.Vec, self.position, t, AnimationChannel.lerp_vector);
+            target.position = sampleKeyframe(zm.Vec, self.position, t, Channel.lerp_vector);
         }
         if (self.rotation.len > 0) {
-            target.rotation = sampleKeyframe(zm.Quat, self.rotation, t, AnimationChannel.lerp_quat);
+            target.rotation = sampleKeyframe(zm.Quat, self.rotation, t, Channel.lerp_quat);
         }
         if (self.scale.len > 0) {
-            target.scale = sampleKeyframe(zm.Vec, self.scale, t, AnimationChannel.lerp_vector);
+            target.scale = sampleKeyframe(zm.Vec, self.scale, t, Channel.lerp_vector);
         }
     }
 
-    pub fn calculate(self: *AnimationChannel, t: f32, output: *Transform) void {
+    pub fn calculate(self: *Channel, t: f32, output: *Transform) void {
         if (self.position.len > 0) {
-            output.position = sampleKeyframe(zm.Vec, self.position, t, AnimationChannel.lerp_vector);
+            output.position = sampleKeyframe(zm.Vec, self.position, t, Channel.lerp_vector);
         }
         if (self.rotation.len > 0) {
-            output.rotation = sampleKeyframe(zm.Quat, self.rotation, t, AnimationChannel.lerp_quat);
+            output.rotation = sampleKeyframe(zm.Quat, self.rotation, t, Channel.lerp_quat);
         }
         if (self.scale.len > 0) {
-            output.scale = sampleKeyframe(zm.Vec, self.scale, t, AnimationChannel.lerp_vector);
+            output.scale = sampleKeyframe(zm.Vec, self.scale, t, Channel.lerp_vector);
         }
     }
 };

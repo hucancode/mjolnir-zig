@@ -4,15 +4,14 @@ const vk = @import("vulkan");
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const context = @import("../engine/context.zig").get();
-
 const DataBuffer = @import("../engine/data_buffer.zig").DataBuffer;
 const Handle = @import("../engine/resource.zig").Handle;
 const Transform = @import("../scene/node.zig").Transform;
-const AnimationClip = @import("animation.zig").AnimationClip;
-const AnimationInstance = @import("animation.zig").AnimationInstance;
+const animation = @import("animation.zig");
 const Pose = @import("animation.zig").Pose;
 const SkinnedVertex = @import("geometry.zig").SkinnedVertex;
 const SkinnedGeometry = @import("geometry.zig").SkinnedGeometry;
+
 pub const Bone = struct {
     bind_transform: Transform = .{},
     children: []u32 = undefined,
@@ -23,7 +22,7 @@ pub const Bone = struct {
 pub const SkeletalMesh = struct {
     root_bone: u16 = 0,
     bones: []Bone,
-    animations: []AnimationClip,
+    animations: []animation.Clip,
     vertices_len: u32 = 0,
     indices_len: u32 = 0,
     vertex_buffer: DataBuffer = undefined,
@@ -40,8 +39,22 @@ pub const SkeletalMesh = struct {
         self.index_buffer = try context.*.createLocalBuffer(std.mem.sliceAsBytes(geometry.indices), .{ .index_buffer_bit = true });
     }
 
+    pub fn playAnimation(self: *SkeletalMesh, animation_name: []const u8, mode: animation.PlayMode) !animation.Instance {
+        for (self.animations, 0..) |clip, i| {
+            if (std.mem.eql(u8, clip.name, animation_name)) {
+                return .{
+                    .clip = @intCast(i),
+                    .mode = mode,
+                    .status = .playing,
+                    .time = 0,
+                    .duration = self.animations[i].duration,
+                };
+            }
+        }
+        return error.AnimationNotFound;
+    }
 
-    pub fn calculateAnimationTransform(self: *SkeletalMesh, allocator: Allocator, animation: *AnimationInstance, pose: *Pose) void {
+    pub fn calculateAnimationTransform(self: *SkeletalMesh, allocator: Allocator, anim: *animation.Instance, pose: *Pose) void {
         var transform_stack = std.ArrayList(zm.Mat).init(allocator);
         defer transform_stack.deinit();
         var bone_stack = std.ArrayList(u32).init(allocator);
@@ -51,7 +64,7 @@ pub const SkeletalMesh = struct {
         while (bone_stack.pop()) |bone_index| {
             const parent_matrix = transform_stack.pop().?;
             var animated_transform: Transform = .{};
-            self.animations[animation.clip].animations[bone_index].calculate(animation.time, &animated_transform);
+            self.animations[anim.clip].animations[bone_index].calculate(anim.time, &animated_transform);
             const local_matrix = animated_transform.toMatrix();
             const world_matrix = zm.mul(local_matrix, parent_matrix);
             pose.bone_matrices[bone_index] = zm.mul(self.bones[bone_index].inverse_bind_matrix, world_matrix);

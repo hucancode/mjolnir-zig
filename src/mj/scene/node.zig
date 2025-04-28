@@ -3,7 +3,7 @@ const zm = @import("zmath");
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const Handle = @import("../engine/resource.zig").Handle;
-const AnimationInstance = @import("../geometry/animation.zig").AnimationInstance;
+const AnimationInstance = @import("../geometry/animation.zig").Instance;
 const Pose = @import("../geometry/animation.zig").Pose;
 
 /// Transform component for nodes

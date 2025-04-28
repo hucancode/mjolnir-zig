@@ -3,7 +3,7 @@ const vk = @import("vulkan");
 const mj = @import("mj/engine/engine.zig");
 const zm = @import("zmath");
 const Handle = @import("mj/engine/resource.zig").Handle;
-const AnimationPlayMode = @import("mj/geometry/animation.zig").AnimationPlayMode;
+const AnimationPlayMode = @import("mj/geometry/animation.zig").PlayMode;
 const Geometry = @import("mj/geometry/geometry.zig").Geometry;
 
 const WIDTH = 1280;

@@ -8,22 +8,15 @@ const vk = @import("vulkan");
 const zcgltf = @import("zmesh").io.zcgltf;
 const zm = @import("zmath");
 const zstbi = @import("zstbi");
-
-const Keyframe = @import("../geometry/animation.zig").Keyframe;
-const AnimationStatus = @import("../geometry/animation.zig").AnimationStatus;
-const AnimationPlayMode = @import("../geometry/animation.zig").AnimationPlayMode;
-const AnimationChannel = @import("../geometry/animation.zig").AnimationChannel;
-const AnimationClip = @import("../geometry/animation.zig").AnimationClip;
-const AnimationInstance = @import("../geometry/animation.zig").AnimationInstance;
+const context = @import("context.zig").get();
+const animation = @import("../geometry/animation.zig");
 const SkeletalMesh = @import("../geometry/skeletal_mesh.zig").SkeletalMesh;
 const SkinnedVertex = @import("../geometry/geometry.zig").SkinnedVertex;
 const Bone = @import("../geometry/skeletal_mesh.zig").Bone;
 const StaticMesh = @import("../geometry/static_mesh.zig").StaticMesh;
 const Vertex = @import("../geometry/geometry.zig").Vertex;
 const Material = @import("../material/pbr.zig").Material;
-const buildMaterial = @import("../material/pbr.zig").buildMaterial;
 const SkinnedMaterial = @import("../material/skinned_pbr.zig").SkinnedMaterial;
-const buildSkinnedMaterial = @import("../material/skinned_pbr.zig").buildSkinnedMaterial;
 const Texture = @import("../material/texture.zig").Texture;
 const createDepthImage = @import("../material/texture.zig").createDepthImage;
 const Light = @import("../scene/light.zig").Light;
@@ -48,8 +41,6 @@ const SkeletalMeshBuilder = @import("builder.zig").SkeletalMeshBuilder;
 const NodeBuilder = @import("builder.zig").NodeBuilder;
 const SkinnedGeometry = @import("../geometry/geometry.zig").SkinnedGeometry;
 const Geometry = @import("../geometry/geometry.zig").Geometry;
-
-const context = @import("context.zig").get();
 
 const RENDER_FPS = 60.0;
 const FRAME_TIME = 1.0 / RENDER_FPS;
@@ -326,20 +317,18 @@ pub const Engine = struct {
             if (node.data == .skeletal_mesh) {
                 const skeletal_mesh = &node.data.skeletal_mesh;
                 const skeletal_mesh_ptr = self.skeletal_meshes.get(skeletal_mesh.handle).?;
-                if (skeletal_mesh.animation) |*animation| {
-                    animation.update(delta_time);
-                    skeletal_mesh_ptr.calculateAnimationTransform(self.allocator, animation, &skeletal_mesh.pose);
+                if (skeletal_mesh.animation) |*anim| {
+                    anim.update(delta_time);
+                    skeletal_mesh_ptr.calculateAnimationTransform(self.allocator, anim, &skeletal_mesh.pose);
                 }
                 skeletal_mesh.pose.flush();
             }
         }
         self.last_update_timestamp = Instant.now() catch return true;
-
         // Camera Controls
         const move_speed: f32 = 2.0; // Units per second
         //const rotate_speed: f32 = 1.0; // Radians per second
         const window = self.window;
-
         // Movement
         if (glfw.getKey(window, glfw.Key.w) == glfw.Action.press) {
             self.scene.camera.position[2] += move_speed * delta_time;
@@ -359,7 +348,6 @@ pub const Engine = struct {
         if (glfw.getKey(window, glfw.Key.x) == glfw.Action.press) {
             self.scene.camera.position[1] += move_speed * delta_time;
         }
-
         // Rotation
         // if (glfw.getKey(window, glfw.Key.left) == glfw.Action.press) {
         //     self.scene.camera.rotation = zm.qmul(self.scene.camera.rotation, zm.quatFromAxisAngle(self.scene.camera.up, -std.math.pi*rotate_speed*delta_time));
@@ -569,7 +557,6 @@ pub const Engine = struct {
         std.debug.print("Processing GLTF node (parent handle: {d})\n", .{parent.index});
         const handle = self.spawn().build();
         const engine_node = self.nodes.get(handle) orelse return handle;
-
         if (node.has_translation != 0) {
             std.debug.print("Node has translation\n", .{});
             engine_node.transform.position = zm.loadArr3w(node.translation, 1.0);
@@ -595,10 +582,8 @@ pub const Engine = struct {
                 try self.processGltfMesh(mesh, handle);
             }
         }
-
         std.debug.print("Parenting node {d} to {d}\n", .{ handle.index, parent.index });
         self.parentNode(parent, handle);
-
         if (node.children) |children| {
             std.debug.print("Processing {d} child nodes\n", .{node.children_count});
             for (children[0..node.children_count]) |child| {
@@ -611,25 +596,24 @@ pub const Engine = struct {
     fn processGltfSkinnedMesh(self: *Engine, mesh: *zcgltf.Mesh, skin: *zcgltf.Skin, node: Handle, data: *zcgltf.Data) !void {
         std.debug.print("Processing GLTF skinned mesh with {d} primitives\n", .{mesh.primitives_count});
         for (mesh.primitives[0..mesh.primitives_count]) |*primitive| {
-            try self.processSkinnedPrimitive(mesh, skin, primitive, node, data);
+            try self.processSkinnedPrimitive(skin, primitive, node, data);
         }
     }
 
     fn processGltfMesh(self: *Engine, mesh: *zcgltf.Mesh, node: Handle) !void {
         std.debug.print("Processing GLTF mesh with {d} primitives\n", .{mesh.primitives_count});
         for (mesh.primitives[0..mesh.primitives_count]) |*primitive| {
-            try self.processStaticPrimitive(mesh, primitive, node);
+            try self.processStaticPrimitive(primitive, node);
         }
     }
 
-    fn processStaticPrimitive(self: *Engine, _: *zcgltf.Mesh, primitive: *zcgltf.Primitive, node: Handle) !void {
+    fn processStaticPrimitive(self: *Engine, primitive: *zcgltf.Primitive, node: Handle) !void {
         const material_handle = self.makeMaterial().build();
         const material = self.materials.get(material_handle) orelse return error.ResourceAllocationFailed;
         var vertices = std.ArrayList(Vertex).init(self.allocator);
         defer vertices.deinit();
         var indices = std.ArrayList(u32).init(self.allocator);
         defer indices.deinit();
-
         // Process attributes
         for (primitive.attributes[0..primitive.attributes_count]) |attribute| {
             const accessor = attribute.data;
@@ -671,8 +655,7 @@ pub const Engine = struct {
         try self.loadMaterialTextures(primitive, material);
     }
 
-    fn processSkinnedPrimitive(self: *Engine, mesh_gltf: *zcgltf.Mesh, skin: *zcgltf.Skin, primitive: *zcgltf.Primitive, node: Handle, data: *zcgltf.Data) !void {
-        _ = mesh_gltf;
+    fn processSkinnedPrimitive(self: *Engine, skin: *zcgltf.Skin, primitive: *zcgltf.Primitive, node: Handle, data: *zcgltf.Data) !void {
         const bones = try self.allocator.alloc(Bone, skin.joints_count);
         errdefer self.allocator.free(bones);
         var bone_lookup = std.AutoHashMap(*zcgltf.Node, u32).init(self.allocator);
@@ -687,11 +670,10 @@ pub const Engine = struct {
                 bones[i].inverse_bind_matrix = zm.loadMat(&matrix);
                 bones[i].bind_transform.position = zm.loadArr3(joint.translation);
                 bones[i].bind_transform.rotation = zm.loadArr4(joint.rotation);
-                bones[i].bind_transform.scale = zm.loadArr3w(joint.scale, 1.0);
+                bones[i].bind_transform.scale = zm.loadArr3(joint.scale);
                 std.debug.print("Load Bone {d}: Translation = {d}, Rotation = {d} inverse bind matrix = {d}\n", .{ i, bones[i].bind_transform.position, bones[i].bind_transform.rotation, bones[i].inverse_bind_matrix });
             }
         }
-
         // Second pass: setup children and transforms, track child bones
         for (skin.joints[0..skin.joints_count], 0..) |joint, i| {
             bones[i].children = try self.allocator.alloc(u32, joint.children_count);
@@ -702,7 +684,6 @@ pub const Engine = struct {
                 is_child.set(idx); // Mark this bone as being a child
             }
         }
-
         // Find the root bone (the one that isn't a child of any other bone)
         var root_bone: ?u16 = null;
         for (0..skin.joints_count) |i| {
@@ -714,13 +695,11 @@ pub const Engine = struct {
                 root_bone = @intCast(i);
             }
         }
-
         // If no root was found (cyclic hierarchy), use bone 0 as root
         if (root_bone == null) {
             std.debug.print("Warning: No root bone found, using bone 0\n", .{});
             root_bone = 0;
         }
-
         std.debug.print("Creating skinned material...\n", .{});
         const material_handle = self.makeSkinnedMaterial().build();
         var vertices = std.ArrayList(SkinnedVertex).init(self.allocator);
@@ -777,14 +756,12 @@ pub const Engine = struct {
                 }
             }
         }
-
         if (primitive.indices) |accessor| {
             const index_count = accessor.count;
             std.debug.print("Processing {d} indices\n", .{index_count});
             try indices.resize(index_count);
             _ = accessor.unpackIndices(indices.items);
         }
-
         std.debug.print("Creating skeletal mesh\n", .{});
         const mesh_handle = self.makeSkeletalMesh()
             .withGeometry(SkinnedGeometry.make(vertices.items, indices.items))
@@ -855,21 +832,16 @@ pub const Engine = struct {
         const count = accessor.count;
         const float_count = count * components;
         std.debug.print("Unpacking accessor with {d} elements, {d} components ({d} total floats)\n", .{ count, components, float_count });
-
         const floats = try self.allocator.alloc(f32, float_count);
         defer self.allocator.free(floats);
-
         const unpacked_count = accessor.unpackFloats(floats);
         std.debug.print("Unpacked {d} floats\n", .{unpacked_count.len});
-
         if (unpacked_count.len != count * components) {
             std.debug.print("ERROR: Unpacked count ({d}) doesn't match expected count ({d})\n", .{ unpacked_count.len, count * components });
             return error.InvalidAccessorData;
         }
-
         const result = try self.allocator.alloc([components]f32, count);
         std.debug.print("Repackaging {d} floats into {d} vectors of size {d}\n", .{ float_count, count, components });
-
         for (0..count) |i| {
             for (0..components) |j| {
                 result[i][j] = floats[i * components + j];
@@ -878,98 +850,44 @@ pub const Engine = struct {
         return result;
     }
 
-    // Builder pattern support
-pub fn spawnNode(self: *Engine) *@import("builder.zig").NodeBuilder {
-    const builder = self.allocator.create(@import("builder.zig").NodeBuilder) catch unreachable;
-    builder.* = @import("builder.zig").NodeBuilder.init(self);
-    return builder;
-}
-
-pub fn makeAnimator(self: *Engine, node: Handle) *@import("builder.zig").AnimationBuilder {
-    const builder = self.allocator.create(@import("builder.zig").AnimationBuilder) catch unreachable;
-    builder.* = @import("builder.zig").AnimationBuilder.init(self, node);
-    return builder;
-}
-
-// Original playAnimation with improved error handling
-pub fn playAnimation(self: *Engine, node: Handle, name: []const u8, mode: AnimationPlayMode) !void {
+    // Original playAnimation with improved error handling
+    pub fn playAnimation(self: *Engine, node: Handle, name: []const u8, mode: animation.PlayMode) !void {
         const node_ptr = self.nodes.get(node) orelse return error.InvalidNode;
         if (node_ptr.data != .skeletal_mesh) {
             return error.NotASkeletalMesh;
         }
         var skeletal_mesh_node = &node_ptr.data.skeletal_mesh;
         const mesh = self.skeletal_meshes.get(skeletal_mesh_node.handle) orelse return error.InvalidMesh;
-        // Find animation clip by name
-        var clip_index: u32 = 0;
-        var found = false;
-        for (mesh.animations, 0..) |clip, i| {
-            if (std.mem.eql(u8, clip.name, name)) {
-                clip_index = @intCast(i);
-                found = true;
-                break;
-            }
-        }
-        if (!found) return error.AnimationNotFound;
-        std.debug.print("playing animation: {s}\n", .{name});
-        skeletal_mesh_node.animation = .{
-            .clip = clip_index,
-            .mode = mode,
-            .status = .playing,
-            .time = 0,
-            .duration = mesh.animations[clip_index].duration,
-        };
+        skeletal_mesh_node.animation = try mesh.playAnimation(name, mode);
     }
 
     pub fn pauseAnimation(self: *Engine, node: Handle) !void {
         const node_ptr = self.nodes.get(node) orelse return error.InvalidNode;
-
         if (node_ptr.data != .skeletal_mesh) {
             return error.NotASkeletalMesh;
         }
-
         if (node_ptr.data.skeletal_mesh.animation) |*anim| {
-            if (anim.status == .playing) {
-                anim.status = .paused;
-            }
+            anim.pause();
         }
     }
 
     pub fn resumeAnimation(self: *Engine, node: Handle) !void {
         const node_ptr = self.nodes.get(node) orelse return error.InvalidNode;
-
         if (node_ptr.data != .skeletal_mesh) {
             return error.NotASkeletalMesh;
         }
-
         if (node_ptr.data.skeletal_mesh.animation) |*anim| {
-            if (anim.status == .paused) {
-                anim.status = .playing;
-            }
+            anim.unpause();
         }
     }
 
     pub fn stopAnimation(self: *Engine, node: Handle) !void {
         const node_ptr = self.nodes.get(node) orelse return error.InvalidNode;
-
         if (node_ptr.data != .skeletal_mesh) {
             return error.NotASkeletalMesh;
         }
-
         if (node_ptr.data.skeletal_mesh.animation) |*anim| {
-            anim.status = .stopped;
-            anim.time = 0;
-        }
-    }
-
-    pub fn setAnimationMode(self: *Engine, node: Handle, mode: AnimationPlayMode) !void {
-        const node_ptr = self.nodes.get(node) orelse return error.InvalidNode;
-
-        if (node_ptr.data != .skeletal_mesh) {
-            return error.NotASkeletalMesh;
-        }
-
-        if (node_ptr.data.skeletal_mesh.animation) |*anim| {
-            anim.mode = mode;
+            anim.stop();
         }
     }
 
@@ -979,23 +897,18 @@ pub fn playAnimation(self: *Engine, node: Handle, name: []const u8, mode: Animat
             std.debug.print("Error: Invalid mesh handle {d}\n", .{mesh_handle.index});
             return error.InvalidMesh;
         };
-
         if (data.animations_count == 0) {
             std.debug.print("No animations found in GLTF data\n", .{});
             return;
         }
-
         std.debug.print("Processing {d} animations\n", .{data.animations_count});
         const animations = data.animations.?[0..data.animations_count];
-
-        var clips = try self.allocator.alloc(AnimationClip, data.animations_count);
+        var clips = try self.allocator.alloc(animation.Clip, data.animations_count);
         errdefer self.allocator.free(clips);
         std.debug.print("Allocated space for {d} animation clips\n", .{data.animations_count});
-
         for (animations, 0..) |*gltf_anim, i| {
             std.debug.print("Processing animation {d}/{d}\n", .{ i + 1, data.animations_count });
             var clip = &clips[i];
-
             if (std.mem.span(gltf_anim.name)) |name| {
                 std.debug.print("Animation name: {s}\n", .{name});
                 clip.name = try self.allocator.dupe(u8, name);
@@ -1003,38 +916,30 @@ pub fn playAnimation(self: *Engine, node: Handle, name: []const u8, mode: Animat
                 std.debug.print("Unnamed animation\n", .{});
                 clip.name = try self.allocator.dupe(u8, "unnamed");
             }
-
             std.debug.print("Allocating space for {d} bone channels\n", .{mesh.bones.len});
-            clip.animations = try self.allocator.alloc(AnimationChannel, mesh.bones.len);
-
+            clip.animations = try self.allocator.alloc(animation.Channel, mesh.bones.len);
             // Initialize all channels with empty arrays
             for (clip.animations, 0..) |*channel, bone_idx| {
-                channel.position = &[_]Keyframe(zm.Vec){};
-                channel.rotation = &[_]Keyframe(zm.Quat){};
-                channel.scale = &[_]Keyframe(zm.Vec){};
+                channel.position = &[_]animation.Keyframe(zm.Vec){};
+                channel.rotation = &[_]animation.Keyframe(zm.Quat){};
+                channel.scale = &[_]animation.Keyframe(zm.Vec){};
                 std.debug.print("Initialized empty channels for bone {d}\n", .{bone_idx});
             }
-
             var max_time: f32 = 0;
-
             std.debug.print("Processing {d} animation channels\n", .{gltf_anim.channels_count});
             // Process animation channels
             for (gltf_anim.channels[0..gltf_anim.channels_count], 0..) |*channel, chan_idx| {
                 std.debug.print("Processing channel {d}/{d}\n", .{ chan_idx + 1, gltf_anim.channels_count });
-
                 if (channel.target_node == null) {
                     std.debug.print("Skipping channel {d} - null target node\n", .{chan_idx});
                     continue;
                 }
-
                 const sampler = channel.sampler;
                 const input_accessor = sampler.input;
                 const output_accessor = sampler.output;
-
                 std.debug.print("Unpacking time values for channel {d}\n", .{chan_idx});
                 const times = try self.unpackAccessorFloats(1, input_accessor);
                 defer self.allocator.free(times);
-
                 var target_bone: ?u32 = null;
                 // Find corresponding bone index
                 for (skin.joints[0..skin.joints_count], 0..) |node, node_idx| {
@@ -1044,23 +949,20 @@ pub fn playAnimation(self: *Engine, node: Handle, name: []const u8, mode: Animat
                         break;
                     }
                 }
-
                 if (target_bone == null) {
                     std.debug.print("No matching bone found for channel {d}, skipping\n", .{chan_idx});
                     continue;
                 }
-
                 // Update max time if needed
                 for (times) |time| {
                     if (time[0] > max_time) max_time = time[0];
                 }
-
                 switch (channel.target_path) {
                     .translation => {
                         std.debug.print("Processing translation channel for bone {d}\n", .{target_bone.?});
                         const values = try self.unpackAccessorFloats(3, output_accessor);
                         defer self.allocator.free(values);
-                        var keyframes = try self.allocator.alloc(Keyframe(zm.Vec), times.len);
+                        var keyframes = try self.allocator.alloc(animation.Keyframe(zm.Vec), times.len);
                         std.debug.print("Creating {d} translation keyframes\n", .{times.len});
                         for (times, values, 0..) |time, value, j| {
                             keyframes[j] = .{
@@ -1074,7 +976,7 @@ pub fn playAnimation(self: *Engine, node: Handle, name: []const u8, mode: Animat
                         std.debug.print("Processing rotation channel for bone {d}\n", .{target_bone.?});
                         const values = try self.unpackAccessorFloats(4, output_accessor);
                         defer self.allocator.free(values);
-                        var keyframes = try self.allocator.alloc(Keyframe(zm.Quat), times.len);
+                        var keyframes = try self.allocator.alloc(animation.Keyframe(zm.Quat), times.len);
                         std.debug.print("Creating {d} rotation keyframes\n", .{times.len});
                         for (times, values, 0..) |time, value, j| {
                             keyframes[j] = .{
@@ -1088,7 +990,7 @@ pub fn playAnimation(self: *Engine, node: Handle, name: []const u8, mode: Animat
                         std.debug.print("Processing scale channel for bone {d}\n", .{target_bone.?});
                         const values = try self.unpackAccessorFloats(3, output_accessor);
                         defer self.allocator.free(values);
-                        var keyframes = try self.allocator.alloc(Keyframe(zm.Vec), times.len);
+                        var keyframes = try self.allocator.alloc(animation.Keyframe(zm.Vec), times.len);
                         std.debug.print("Creating {d} scale keyframes\n", .{times.len});
                         for (times, values, 0..) |time, value, j| {
                             keyframes[j] = .{
