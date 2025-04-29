@@ -339,6 +339,13 @@ pub const NodeBuilder = struct {
         return self;
     }
 
+    pub fn withName(self: *NodeBuilder, name: []const u8) *NodeBuilder {
+        if (self.engine.nodes.get(self.handle)) |node| {
+            node.name = name;
+        }
+        return self;
+    }
+
     pub fn build(self: *NodeBuilder) Handle {
         defer self.engine.allocator.destroy(self);
         return self.handle;

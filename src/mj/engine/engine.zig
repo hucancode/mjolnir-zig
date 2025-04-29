@@ -364,12 +364,6 @@ pub const Engine = struct {
         return true;
     }
 
-    pub fn setNodeName(self: *Engine, node: Handle, name: []const u8) !void {
-        if (self.nodes.get(node)) |node_ptr| {
-            try node_ptr.setName(name);
-        }
-    }
-
     pub fn deinit(self: *Engine) !void {
         try context.*.vkd.deviceWaitIdle();
         for (self.nodes.entries.items) |*entry| {
@@ -456,60 +450,6 @@ pub const Engine = struct {
         return builder;
     }
 
-    pub fn deinitNodeCascade(self: *Engine, handle: Handle) void {
-        if (self.nodes.get(handle)) |node| {
-            for (node.children.items) |child| {
-                self.deinitNodeCascade(child);
-            }
-            node.deinit();
-            self.nodes.free(handle);
-        }
-    }
-
-    pub fn deinitNode(self: *Engine, handle: Handle) void {
-        self.unparentNode(handle);
-        self.deinitNodeCascade(handle);
-    }
-
-    pub fn deinitMesh(self: *Engine, handle: Handle) void {
-        if (self.meshes.get(handle)) |mesh| {
-            mesh.deinit();
-            self.meshes.free(handle);
-        }
-    }
-
-    pub fn deinitSkeletalMesh(self: *Engine, handle: Handle) void {
-        if (self.skeletal_meshes.get(handle)) |mesh| {
-            mesh.deinit();
-            self.skeletal_meshes.free(handle);
-        }
-    }
-
-    pub fn deinitTexture(self: *Engine, handle: Handle) void {
-        if (self.textures.get(handle)) |texture| {
-            texture.deinit();
-            self.textures.free(handle);
-        }
-    }
-
-    pub fn deinitMaterial(self: *Engine, handle: Handle) void {
-        if (self.materials.get(handle)) |material| {
-            material.deinit();
-            self.materials.free(handle);
-        }
-    }
-
-    pub fn deinitSkinnedMaterial(self: *Engine, handle: Handle) void {
-        if (self.skinned_materials.get(handle)) |material| {
-            material.deinit();
-            self.skinned_materials.free(handle);
-        }
-    }
-
-    pub fn deinitLight(self: *Engine, handle: Handle) void {
-        self.lights.free(handle);
-    }
-
     pub fn unparentNode(self: *Engine, node: Handle) void {
         const child_node = self.nodes.get(node) orelse return;
         const parent_handle = child_node.parent;
@@ -528,7 +468,6 @@ pub const Engine = struct {
     }
 
     pub fn parentNode(self: *Engine, parent: Handle, child: Handle) void {
-        // std.debug.print("Parenting node {} to {}\n", .{ child, parent });
         self.unparentNode(child);
         const parent_node = self.nodes.get(parent) orelse return;
         const child_node = self.nodes.get(child) orelse return;
@@ -547,12 +486,11 @@ pub const Engine = struct {
         }
         var ret = std.ArrayList(Handle).init(self.allocator);
         const nodes = data.nodes orelse return ret.toOwnedSlice();
-        // DFS stack
-        const DFSEntry = struct {
+        const TraverseEntry = struct {
             idx: usize,
             parent: Handle,
         };
-        var stack = std.ArrayList(DFSEntry).init(self.allocator);
+        var stack = std.ArrayList(TraverseEntry).init(self.allocator);
         defer stack.deinit();
         // mark leaf nodes
         var leafs = try std.DynamicBitSet.initEmpty(self.allocator, data.nodes_count);
@@ -561,17 +499,16 @@ pub const Engine = struct {
             const children = node.children orelse continue;
             for (children[0..node.children_count]) |child| {
                 const base = @intFromPtr(nodes);
-                const offset = @intFromPtr(child) - base;
-                const i = offset / @sizeOf(zcgltf.Node);
+                const pos = @intFromPtr(child);
+                const i = (pos - base) / @sizeOf(zcgltf.Node);
                 leafs.set(i);
             }
         }
         for(0..data.nodes_count) |i| {
             if (!leafs.isSet(i)) {
-                try stack.append(DFSEntry{ .idx = i, .parent = self.scene.root });
+                try stack.append(TraverseEntry{ .idx = i, .parent = self.scene.root });
             }
         }
-        std.debug.print("DFS start\n", .{});
         while (stack.pop()) |item| {
             const handle = try self.processGltfNode(data, &nodes[item.idx], item.parent);
             self.parentNode(item.parent, handle);
@@ -581,9 +518,9 @@ pub const Engine = struct {
             const children = nodes[item.idx].children orelse continue;
             for (0..nodes[item.idx].children_count) |i| {
                 const base = @intFromPtr(nodes);
-                const offset = @intFromPtr(children[i]) - base;
-                const j = offset / @sizeOf(zcgltf.Node);
-                try stack.append(DFSEntry { .idx = j, .parent = handle });
+                const pos = @intFromPtr(children[i]);
+                const j = (pos - base) / @sizeOf(zcgltf.Node);
+                try stack.append(TraverseEntry { .idx = j, .parent = handle });
             }
         }
         return ret.toOwnedSlice();
