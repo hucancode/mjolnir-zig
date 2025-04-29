@@ -528,7 +528,7 @@ pub const Engine = struct {
     }
 
     pub fn parentNode(self: *Engine, parent: Handle, child: Handle) void {
-        std.debug.print("Parenting node {} to {}\n", .{ child, parent });
+        // std.debug.print("Parenting node {} to {}\n", .{ child, parent });
         self.unparentNode(child);
         const parent_node = self.nodes.get(parent) orelse return;
         const child_node = self.nodes.get(child) orelse return;
@@ -547,14 +547,49 @@ pub const Engine = struct {
         }
         var ret = try self.allocator.alloc(Handle, data.nodes_count);
         const nodes = data.nodes orelse return ret;
-        for (0..data.nodes_count) |i| {
-            ret[i] = try self.processGltfNode(data, &nodes[i], self.scene.root);
+        // DFS stack
+        const DFSEntry = struct {
+            idx: usize,
+            parent: Handle,
+        };
+        var stack = std.ArrayList(DFSEntry).init(self.allocator);
+        // mark leaf nodes
+        var leafs = try std.DynamicBitSet.initEmpty(self.allocator, data.nodes_count);
+        for (nodes[0..data.nodes_count]) |node| {
+            const children = node.children orelse continue;
+            for (children[0..node.children_count]) |child| {
+                const base = @intFromPtr(nodes);
+                const offset = @intFromPtr(child) - base;
+                const i = offset / @sizeOf(zcgltf.Node);
+                leafs.set(i);
+            }
+        }
+        for(0..data.nodes_count) |i| {
+            if (!leafs.isSet(i)) {
+                try stack.append(DFSEntry{ .idx = i, .parent = self.scene.root });
+            }
+        }
+        std.debug.print("DFS start\n", .{});
+        while (stack.pop()) |item| {
+            const handle = try self.processGltfNode(data, &nodes[item.idx], item.parent);
+            self.parentNode(item.parent, handle);
+            ret[item.idx] = handle;
+            const children = nodes[item.idx].children orelse continue;
+            for (0..nodes[item.idx].children_count) |i| {
+                const base = @intFromPtr(nodes);
+                const offset = @intFromPtr(children[i]) - base;
+                const j = offset / @sizeOf(zcgltf.Node);
+                try stack.append(DFSEntry { .idx = j, .parent = handle });
+            }
         }
         return ret;
     }
 
     fn processGltfNode(self: *Engine, data: *zcgltf.Data, node: *zcgltf.Node, parent: Handle) !Handle {
-        std.debug.print("Processing GLTF node (parent handle: {d})\n", .{parent.index});
+        std.debug.print("Processing GLTF node {s} (parent handle: {d}) \n", .{node.name orelse "unknown", parent.index});
+        if (node.parent) |parent_node| {
+            std.debug.print("This node has parent node {s}\n", .{parent_node.name orelse "unknown"});
+        }
         const handle = self.spawn().build();
         const engine_node = self.nodes.get(handle) orelse return handle;
         if (node.has_translation != 0) {
@@ -577,14 +612,8 @@ pub const Engine = struct {
                 try self.processGltfMesh(mesh, handle);
             }
         }
-        std.debug.print("Parenting node {d} to {d}\n", .{ handle.index, parent.index });
-        self.parentNode(parent, handle);
-        if (node.children) |children| {
-            std.debug.print("Processing {d} child nodes\n", .{node.children_count});
-            for (children[0..node.children_count]) |child| {
-                _ = try self.processGltfNode(data, child, handle);
-            }
-        }
+        // std.debug.print("Parenting node {d} to {d}\n", .{ handle.index, parent.index });
+
         return handle;
     }
 
@@ -640,6 +669,7 @@ pub const Engine = struct {
             try indices.resize(index_count);
             _ = accessor.unpackIndices(indices.items);
         }
+        std.debug.print("Creating new static mesh...\n", .{});
         const mesh_handle = self.makeMesh()
             .withGeometry(Geometry.make(vertices.items, indices.items))
             .withMaterial(material_handle)
@@ -666,7 +696,7 @@ pub const Engine = struct {
                 bones[i].bind_transform.position = zm.loadArr3(joint.translation);
                 bones[i].bind_transform.rotation = zm.loadArr4(joint.rotation);
                 bones[i].bind_transform.scale = zm.loadArr3(joint.scale);
-                std.debug.print("Load Bone {d}: Translation = {d}, Rotation = {d} inverse bind matrix = {d}\n", .{ i, bones[i].bind_transform.position, bones[i].bind_transform.rotation, bones[i].inverse_bind_matrix });
+                // std.debug.print("Load Bone {d}: Translation = {d}, Rotation = {d} inverse bind matrix = {d}\n", .{ i, bones[i].bind_transform.position, bones[i].bind_transform.rotation, bones[i].inverse_bind_matrix });
             }
         }
         // Second pass: setup children and transforms, track child bones

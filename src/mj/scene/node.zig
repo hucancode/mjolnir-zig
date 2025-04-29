@@ -95,7 +95,7 @@ pub fn parentNode(pool: anytype, parent: Handle, child: Handle) void {
     const parent_node = pool.get(parent) orelse return;
     const child_node = pool.get(child) orelse return;
 
-    std.debug.print("Parenting node {*} type {any} to {*} type {any}\n", .{ child_node, child_node.data, parent_node, parent_node.data });
+    // std.debug.print("Parenting node {*} type {any} to {*} type {any}\n", .{ child_node, child_node.data, parent_node, parent_node.data });
 
     // Set parent-child relationship
     child_node.parent = parent;
