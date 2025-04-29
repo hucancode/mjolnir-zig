@@ -545,16 +545,18 @@ pub const Engine = struct {
         if (data.buffers_count > 0) {
             try zcgltf.loadBuffers(options, data, path);
         }
-        var ret = try self.allocator.alloc(Handle, data.nodes_count);
-        const nodes = data.nodes orelse return ret;
+        var ret = std.ArrayList(Handle).init(self.allocator);
+        const nodes = data.nodes orelse return ret.toOwnedSlice();
         // DFS stack
         const DFSEntry = struct {
             idx: usize,
             parent: Handle,
         };
         var stack = std.ArrayList(DFSEntry).init(self.allocator);
+        defer stack.deinit();
         // mark leaf nodes
         var leafs = try std.DynamicBitSet.initEmpty(self.allocator, data.nodes_count);
+        defer leafs.deinit();
         for (nodes[0..data.nodes_count]) |node| {
             const children = node.children orelse continue;
             for (children[0..node.children_count]) |child| {
@@ -573,7 +575,9 @@ pub const Engine = struct {
         while (stack.pop()) |item| {
             const handle = try self.processGltfNode(data, &nodes[item.idx], item.parent);
             self.parentNode(item.parent, handle);
-            ret[item.idx] = handle;
+            if (!leafs.isSet(item.idx)) {
+                try ret.append(handle);
+            }
             const children = nodes[item.idx].children orelse continue;
             for (0..nodes[item.idx].children_count) |i| {
                 const base = @intFromPtr(nodes);
@@ -582,7 +586,7 @@ pub const Engine = struct {
                 try stack.append(DFSEntry { .idx = j, .parent = handle });
             }
         }
-        return ret;
+        return ret.toOwnedSlice();
     }
 
     fn processGltfNode(self: *Engine, data: *zcgltf.Data, node: *zcgltf.Node, parent: Handle) !Handle {
@@ -613,7 +617,6 @@ pub const Engine = struct {
             }
         }
         // std.debug.print("Parenting node {d} to {d}\n", .{ handle.index, parent.index });
-
         return handle;
     }
 

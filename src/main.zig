@@ -46,15 +46,15 @@ fn setup(e: *mj.Engine) !void {
     e.scene.camera.lookAt(.{ 0.0, 2.5, -5.0, 0.0 });
     // _ = try e.loadGltf("assets/Duck.glb");
     const gltf_nodes = try e.loadGltf("assets/CesiumMan.glb");
-    for (gltf_nodes) |node| {
+    for (gltf_nodes) |armature| {
+        const armature_ptr = e.nodes.get(armature) orelse continue;
+        const skeleton = armature_ptr.children.getLastOrNull() orelse continue;
+        const skeleton_ptr = e.nodes.get(skeleton) orelse continue;
+        skeleton_ptr.transform.position = .{0.0, 0.0, 0.0, 0.0};
+        skeleton_ptr.transform.scale = .{3.0, 3.0, 3.0, 3.0};
+        skeleton_ptr.transform.rotation = zm.quatFromNormAxisAngle(.{ 0.0, 1.0, 0.0, 0.0 }, std.math.pi);
         const name = "Anim_0";
-        e.playAnimation(node, name, .loop) catch {
-            continue;
-        };
-        const ptr = e.nodes.get(node).?;
-        ptr.transform.position = .{0.0, 0.0, 0.0, 0.0};
-        ptr.transform.scale = .{3.0, 3.0, 3.0, 3.0};
-        ptr.transform.rotation = zm.quatFromNormAxisAngle(.{ 0.0, 1.0, 0.0, 0.0 }, std.math.pi);
+        e.playAnimation(skeleton, name, .loop) catch continue;
     }
     for (0..light.len) |i| {
         const color: zm.Vec = .{
