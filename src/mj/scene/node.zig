@@ -3,7 +3,7 @@ const zm = @import("zmath");
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const Handle = @import("../engine/resource.zig").Handle;
-const AnimationInstance = @import("../geometry/animation.zig").AnimationInstance;
+const AnimationInstance = @import("../geometry/animation.zig").Instance;
 const Pose = @import("../geometry/animation.zig").Pose;
 
 /// Transform component for nodes
@@ -11,9 +11,9 @@ pub const Transform = struct {
     position: zm.Vec = zm.f32x4s(0),
     rotation: zm.Quat = zm.qidentity(),
     scale: zm.Vec = zm.f32x4s(1),
-    // is_dirty: bool = false,
-    // local_matrix: zm.Mat = zm.identity(),
-    // world_matrix: zm.Mat = zm.identity(),
+    is_dirty: bool = false,
+    local_matrix: zm.Mat = zm.identity(),
+    world_matrix: zm.Mat = zm.identity(),
 
     pub fn toMatrix(self: *const Transform) zm.Mat {
         const t = zm.translationV(self.position);
@@ -35,6 +35,7 @@ pub const Node = struct {
     children: ArrayList(Handle),
     allocator: Allocator,
     transform: Transform,
+    name: ?[]const u8 = null,  // Added for debugging/identification
     data: union(enum) {
         light: Handle,
         skeletal_mesh: struct {
@@ -50,6 +51,14 @@ pub const Node = struct {
         self.children = ArrayList(Handle).init(allocator);
         self.allocator = allocator;
         self.transform = .{};
+        self.name = null;
+    }
+
+    pub fn setName(self: *Node, name: []const u8) !void {
+        if (self.name) |old_name| {
+            self.allocator.free(old_name);
+        }
+        self.name = try self.allocator.dupe(u8, name);
     }
 
     pub fn deinit(self: *Node) void {
@@ -86,7 +95,7 @@ pub fn parentNode(pool: anytype, parent: Handle, child: Handle) void {
     const parent_node = pool.get(parent) orelse return;
     const child_node = pool.get(child) orelse return;
 
-    std.debug.print("Parenting node {*} type {any} to {*} type {any}\n", .{ child_node, child_node.data, parent_node, parent_node.data });
+    // std.debug.print("Parenting node {*} type {any} to {*} type {any}\n", .{ child_node, child_node.data, parent_node, parent_node.data });
 
     // Set parent-child relationship
     child_node.parent = parent;
