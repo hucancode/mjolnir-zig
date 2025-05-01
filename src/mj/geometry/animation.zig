@@ -78,7 +78,7 @@ pub const Pose = struct {
 
     pub fn init(self: *Pose, joints_count: u16) !void {
         self.bone_matrices = try self.allocator.alloc(zm.Mat, joints_count);
-        for(0..joints_count) |i| {
+        for (0..joints_count) |i| {
             self.bone_matrices[i] = zm.identity();
         }
         self.bone_buffer = try context.*.mallocHostVisibleBuffer(@sizeOf(zm.Mat) * joints_count, .{ .storage_buffer_bit = true });

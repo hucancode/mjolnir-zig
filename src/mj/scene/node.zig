@@ -35,15 +35,15 @@ pub const Node = struct {
     children: ArrayList(Handle),
     allocator: Allocator,
     transform: Transform,
-    name: ?[]const u8 = null,  // Added for debugging/identification
+    name: ?[]const u8 = null, // Added for debugging/identification
     data: union(enum) {
         light: Handle,
+        static_mesh: Handle,
         skeletal_mesh: struct {
             handle: Handle,
             pose: Pose,
             animation: ?AnimationInstance = null,
         },
-        static_mesh: Handle,
         none,
     },
 
@@ -52,13 +52,6 @@ pub const Node = struct {
         self.allocator = allocator;
         self.transform = .{};
         self.name = null;
-    }
-
-    pub fn setName(self: *Node, name: []const u8) !void {
-        if (self.name) |old_name| {
-            self.allocator.free(old_name);
-        }
-        self.name = try self.allocator.dupe(u8, name);
     }
 
     pub fn deinit(self: *Node) void {

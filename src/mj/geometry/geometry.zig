@@ -171,12 +171,8 @@ pub const Geometry = struct {
         // TODO: calculate sphere geometry here
         _ = segments;
         _ = rings;
-        const vertices = comptime [_]Vertex{
-
-        };
-        const indices = comptime [_]u32{
-
-        };
+        const vertices = comptime [_]Vertex{};
+        const indices = comptime [_]u32{};
         return .{
             .vertices = &vertices,
             .indices = &indices,

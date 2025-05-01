@@ -2,6 +2,8 @@ const std = @import("std");
 const vk = @import("vulkan");
 const mj = @import("mj/engine/engine.zig");
 const zm = @import("zmath");
+const glfw = @import("zglfw");
+
 const Handle = @import("mj/engine/resource.zig").Handle;
 const AnimationPlayMode = @import("mj/geometry/animation.zig").PlayMode;
 const Geometry = @import("mj/geometry/geometry.zig").Geometry;
@@ -10,27 +12,27 @@ const WIDTH = 1280;
 const HEIGHT = 720;
 const TITLE = "Hello Mjolnir!";
 // disable safety to avoid excessive logs, enable it later to fix memory leaks
-var gpa = std.heap.GeneralPurposeAllocator(.{.safety = false}){};
+var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = false }){};
 const allocator = gpa.allocator();
 var light: [3]Handle = undefined;
 var light_cube: [3]Handle = undefined;
+var e: mj.Engine = undefined;
 
 pub fn main() !void {
     defer _ = gpa.deinit();
-    var e: mj.Engine = undefined;
     try e.init(allocator, WIDTH, HEIGHT, TITLE);
     defer e.deinit() catch unreachable;
-    try setup(&e);
+    try setup();
     std.debug.print("App initialized\n", .{});
     while (!e.shouldClose()) {
         if (e.update()) {
-            update(&e);
+            update();
         }
         e.render();
     }
 }
 
-fn setup(e: *mj.Engine) !void {
+fn setup() !void {
     const texture = e.makeTexture()
         .fromData(@embedFile("assets/statue-1275469_1280.jpg"))
         .build();
@@ -39,22 +41,26 @@ fn setup(e: *mj.Engine) !void {
         .build();
 
     const mesh = e.makeMesh()
-        .withGeometry(Geometry.cube(.{1.0, 1.0, 1.0, 1.0}))
+        .withGeometry(Geometry.cube(.{ 1.0, 1.0, 1.0, 1.0 }))
         .withMaterial(material)
         .build();
-    e.scene.camera.position = .{ 0.0, 10.0, -15.0, 0.0 };
-    e.scene.camera.lookAt(.{ 0.0, 2.5, -5.0, 0.0 });
+
+    // Set up orbit camera
+    e.scene.setCameraMode(.orbit);
+    e.scene.orbit_camera.setTarget(.{ 0.0, 0.0, 0.0, 0.0 });
     // _ = try e.loadGltf("assets/Duck.glb");
-    const gltf_nodes = try e.loadGltf("assets/CesiumMan.glb");
-    for (gltf_nodes) |node| {
+    const gltf_nodes = try e.loadGltf()
+        .withPath("assets/CesiumMan.glb")
+        .submit();
+    for (gltf_nodes) |armature| {
+        const armature_ptr = e.nodes.get(armature) orelse continue;
+        const skeleton = armature_ptr.children.getLastOrNull() orelse continue;
+        const skeleton_ptr = e.nodes.get(skeleton) orelse continue;
+        skeleton_ptr.transform.position = .{ 0.0, 0.0, 0.0, 0.0 };
+        skeleton_ptr.transform.scale = .{ 3.0, 3.0, 3.0, 3.0 };
+        // skeleton_ptr.transform.rotation = zm.quatFromNormAxisAngle(.{ 0.0, 1.0, 0.0, 0.0 }, std.math.pi);
         const name = "Anim_0";
-        e.playAnimation(node, name, .loop) catch {
-            continue;
-        };
-        const ptr = e.nodes.get(node).?;
-        ptr.transform.position = .{0.0, 0.0, 0.0, 0.0};
-        ptr.transform.scale = .{3.0, 3.0, 3.0, 3.0};
-        ptr.transform.rotation = zm.quatFromNormAxisAngle(.{ 0.0, 1.0, 0.0, 0.0 }, std.math.pi);
+        e.playAnimation(skeleton, name, .loop) catch continue;
     }
     for (0..light.len) |i| {
         const color: zm.Vec = .{
@@ -78,10 +84,49 @@ fn setup(e: *mj.Engine) !void {
         .withNewDirectionalLight(.{ 0.01, 0.01, 0.01, 0.0 })
         .withPosition(.{ 0.0, -10.0, 5.0, 0.0 })
         .build();
+    const ScrollHandler = struct {
+        fn scroll_callback(window: *glfw.Window, xoffset: f64, yoffset: f64) callconv(.C) void {
+            _ = window;
+            _ = xoffset;
+            const SCROLL_SENSITIVITY = 0.5;
+            e.scene.zoomOrbitCamera(-@as(f32, @floatCast(yoffset)) * SCROLL_SENSITIVITY);
+        }
+    };
+    _ = glfw.setScrollCallback(e.window, ScrollHandler.scroll_callback);
 }
 
-fn update(e: *mj.Engine) void {
-    e.scene.camera.lookAt(.{ 0.0, 2.5, -5.0, 0.0 });
+fn update() void {
+    if (e.scene.camera_mode == .orbit) {
+        // Handle camera rotation with right mouse button
+        const mouse_state = e.window.getCursorPos();
+        const mouse_button_state = e.window.getMouseButton(.left);
+
+        const MOUSE_SENSITIVITY_X = 0.005;
+        const MOUSE_SENSITIVITY_Y = 0.005;
+
+        // Store static variables for tracking mouse state
+        const S = struct {
+            var last_mouse_x: f64 = 0;
+            var last_mouse_y: f64 = 0;
+            var dragging: bool = false;
+        };
+
+        if (mouse_button_state == .press) {
+            if (!S.dragging) {
+                S.last_mouse_x = mouse_state[0];
+                S.last_mouse_y = mouse_state[1];
+                S.dragging = true;
+            }
+            const delta_x = @as(f32, @floatCast(mouse_state[0] - S.last_mouse_x));
+            const delta_y = @as(f32, @floatCast(mouse_state[1] - S.last_mouse_y));
+            e.scene.rotateOrbitCamera(-delta_x * MOUSE_SENSITIVITY_X, delta_y * MOUSE_SENSITIVITY_Y);
+            S.last_mouse_x = mouse_state[0];
+            S.last_mouse_y = mouse_state[1];
+        } else {
+            S.dragging = false;
+        }
+    }
+
     for (0..light.len) |i| {
         const t = e.getTime() + @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(light.len)) * std.math.pi * 2.0;
         const light_ptr = e.nodes.get(light[i]).?;

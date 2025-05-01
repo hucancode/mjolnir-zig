@@ -28,16 +28,26 @@ pub const Camera = struct {
     }
 
     pub fn lookAt(self: *Camera, target: zm.Vec) void {
-        const lookat_matrix = zm.lookAtLh(self.position, target, -self.up);
-        self.rotation = zm.quatFromMat(lookat_matrix);
+        const forward = zm.normalize3(target - self.position);
+        const right = zm.normalize3(zm.cross3(self.up, forward));
+        const up = zm.cross3(forward, right);
+        const rot_mat = zm.Mat{
+            .{ right[0], right[1], right[2], 0.0 },
+            .{ up[0], up[1], up[2], 0.0 },
+            .{ forward[0], forward[1], forward[2], 0.0 },
+            .{ 0.0, 0.0, 0.0, 1.0 },
+        };
+        self.rotation = zm.quatFromMat(rot_mat);
     }
 
     pub fn calculateViewMatrix(self: *const Camera) zm.Mat {
-        const forward = zm.rotate(self.rotation, .{ 0.0, 0.0, 1.0, 0.0 });
+        const rotmat = zm.matFromQuat(self.rotation);
+        const forward = zm.Vec{ rotmat[2][0], rotmat[2][1], rotmat[2][2], 0.0 };
         return zm.lookToLh(self.position, forward, self.up);
     }
-    pub fn right(self: *const Camera) zm.Vec {
-        const forward = zm.rotate(self.rotation, .{ 0.0, 0.0, 1.0, 0.0 });
-        return zm.dot4(self.up, forward);
+
+    pub fn getForwardVector(self: *const Camera) zm.Vec {
+        const rotmat = zm.matFromQuat(self.rotation);
+        return .{ rotmat[2][0], rotmat[2][1], rotmat[2][2], 0.0 };
     }
 };
