@@ -48,7 +48,6 @@ fn setup() !void {
     // Set up orbit camera
     e.scene.setCameraMode(.orbit);
     e.scene.orbit_camera.setTarget(.{ 0.0, 0.0, 0.0, 0.0 });
-    // _ = try e.loadGltf("assets/Duck.glb");
     const gltf_nodes = try e.loadGltf()
         .withPath("assets/CesiumMan.glb")
         .submit();
