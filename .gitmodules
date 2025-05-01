@@ -13,3 +13,6 @@
 [submodule "lib/zglfw"]
 	path = lib/zglfw
 	url = git@github.com:zig-gamedev/zglfw.git
+[submodule "lib/vulkan_headers"]
+	path = lib/vulkan_headers
+	url = git@github:KhronosGroup/Vulkan-Headers
