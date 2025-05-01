@@ -16,3 +16,6 @@
 [submodule "lib/zgui"]
 	path = lib/zgui
 	url = git@github.com:zig-gamedev/zgui.git
+[submodule "lib/vulkan_headers"]
+	path = lib/vulkan_headers
+	url = git@github:KhronosGroup/Vulkan-Headers
