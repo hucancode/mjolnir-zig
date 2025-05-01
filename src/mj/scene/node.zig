@@ -35,7 +35,7 @@ pub const Node = struct {
     children: ArrayList(Handle),
     allocator: Allocator,
     transform: Transform,
-    name: ?[]const u8 = null,  // Added for debugging/identification
+    name: ?[]const u8 = null, // Added for debugging/identification
     data: union(enum) {
         light: Handle,
         static_mesh: Handle,

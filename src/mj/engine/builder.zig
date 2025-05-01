@@ -62,9 +62,7 @@ pub const MaterialBuilder = struct {
         };
     }
 
-    pub fn withCode(self: *MaterialBuilder,
-        vertex: []align(@alignOf(u32)) const u8,
-        fragment: []align(@alignOf(u32)) const u8) *MaterialBuilder {
+    pub fn withCode(self: *MaterialBuilder, vertex: []align(@alignOf(u32)) const u8, fragment: []align(@alignOf(u32)) const u8) *MaterialBuilder {
         self.vertex_shader = vertex;
         self.fragment_shader = fragment;
         return self;
@@ -130,9 +128,7 @@ pub const SkinnedMaterialBuilder = struct {
         };
     }
 
-    pub fn withCode(self: *SkinnedMaterialBuilder,
-        vertex: []align(@alignOf(u32)) const u8,
-        fragment: []align(@alignOf(u32)) const u8) *SkinnedMaterialBuilder {
+    pub fn withCode(self: *SkinnedMaterialBuilder, vertex: []align(@alignOf(u32)) const u8, fragment: []align(@alignOf(u32)) const u8) *SkinnedMaterialBuilder {
         self.vertex_shader = vertex;
         self.fragment_shader = fragment;
         return self;
@@ -310,9 +306,7 @@ pub const NodeBuilder = struct {
     pub fn withSkeletalMesh(self: *NodeBuilder, mesh: Handle) *NodeBuilder {
         if (self.engine.nodes.get(self.handle)) |node| {
             const mesh_ptr = self.engine.skeletal_meshes.get(mesh).?;
-            const pose: Pose = .{
-                .allocator = self.engine.allocator
-            };
+            const pose: Pose = .{ .allocator = self.engine.allocator };
             pose.init(mesh_ptr.bones.len);
             node.data = .{ .skeletal_mesh = .{
                 .handle = mesh,

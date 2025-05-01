@@ -415,7 +415,7 @@ pub const Engine = struct {
     }
 
     pub fn makeSkinnedMaterial(self: *Engine) *SkinnedMaterialBuilder {
-        const builder = self.allocator.create(SkinnedMaterialBuilder ) catch unreachable;
+        const builder = self.allocator.create(SkinnedMaterialBuilder) catch unreachable;
         builder.init(self);
         return builder;
     }

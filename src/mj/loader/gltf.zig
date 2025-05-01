@@ -57,7 +57,7 @@ pub const GLTFLoader = struct {
                 leafs.set(i);
             }
         }
-        for(0..data.nodes_count) |i| {
+        for (0..data.nodes_count) |i| {
             if (!leafs.isSet(i)) {
                 try stack.append(TraverseEntry{ .idx = i, .parent = self.engine.scene.root });
             }
@@ -73,14 +73,14 @@ pub const GLTFLoader = struct {
                 const base = @intFromPtr(nodes);
                 const pos = @intFromPtr(children[i]);
                 const j = (pos - base) / @sizeOf(zcgltf.Node);
-                try stack.append(TraverseEntry { .idx = j, .parent = handle });
+                try stack.append(TraverseEntry{ .idx = j, .parent = handle });
             }
         }
         return ret.toOwnedSlice();
     }
 
     fn processGltfNode(self: *GLTFLoader, data: *zcgltf.Data, node: *zcgltf.Node, parent: Handle) !Handle {
-        std.debug.print("Processing GLTF node {s} (parent handle: {d}) \n", .{node.name orelse "unknown", parent.index});
+        std.debug.print("Processing GLTF node {s} (parent handle: {d}) \n", .{ node.name orelse "unknown", parent.index });
         if (node.parent) |parent_node| {
             std.debug.print("This node has parent node {s}\n", .{parent_node.name orelse "unknown"});
         }
@@ -183,7 +183,7 @@ pub const GLTFLoader = struct {
         if (skin.inverse_bind_matrices) |matrices| {
             const inverse_matrices = try self.unpackAccessorFloats(16, matrices);
             defer self.allocator.free(inverse_matrices);
-            for (inverse_matrices, skin.joints[0..skin.joints_count],0..) |matrix, joint, i| {
+            for (inverse_matrices, skin.joints[0..skin.joints_count], 0..) |matrix, joint, i| {
                 try bone_lookup.put(joint, @intCast(i));
                 bones[i].inverse_bind_matrix = zm.loadMat(&matrix);
                 bones[i].bind_transform.position = zm.loadArr3(joint.translation);
@@ -392,10 +392,7 @@ pub const GLTFLoader = struct {
                 for (times) |time| {
                     if (time[0] > max_time) max_time = time[0];
                 }
-                const target_bone = std.mem.indexOfScalar(
-                    *zcgltf.Node,
-                    skin.joints[0..skin.joints_count],
-                    target_node) orelse continue;
+                const target_bone = std.mem.indexOfScalar(*zcgltf.Node, skin.joints[0..skin.joints_count], target_node) orelse continue;
                 switch (channel.target_path) {
                     .translation => {
                         const values = try self.unpackAccessorFloats(3, output_accessor);
