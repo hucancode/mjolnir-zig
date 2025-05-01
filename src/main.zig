@@ -57,8 +57,6 @@ fn setup() !void {
         const skeleton = armature_ptr.children.getLastOrNull() orelse continue;
         const skeleton_ptr = e.nodes.get(skeleton) orelse continue;
         skeleton_ptr.transform.position = .{ 0.0, 0.0, 0.0, 0.0 };
-        skeleton_ptr.transform.scale = .{ 3.0, 3.0, 3.0, 3.0 };
-        // skeleton_ptr.transform.rotation = zm.quatFromNormAxisAngle(.{ 0.0, 1.0, 0.0, 0.0 }, std.math.pi);
         const name = "Anim_0";
         e.playAnimation(skeleton, name, .loop) catch continue;
     }
@@ -75,14 +73,14 @@ fn setup() !void {
             .build();
         light_cube[i] = e.spawn()
             .withStaticMesh(mesh)
-            .withScale(zm.f32x4s(0.2 * @as(f32, @floatFromInt(i)) + 0.4))
+            .withScale(zm.f32x4s(0.15))
             .asChildOf(light[i])
             .build();
     }
     _ = e.spawn()
         .atRoot()
         .withNewDirectionalLight(.{ 0.01, 0.01, 0.01, 0.0 })
-        .withPosition(.{ 0.0, -10.0, 5.0, 0.0 })
+        .withPosition(.{ 0.0, 10.0, 5.0, 0.0 })
         .build();
     const ScrollHandler = struct {
         fn scroll_callback(window: *glfw.Window, xoffset: f64, yoffset: f64) callconv(.C) void {
@@ -131,10 +129,10 @@ fn update() void {
         const t = e.getTime() + @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(light.len)) * std.math.pi * 2.0;
         const light_ptr = e.nodes.get(light[i]).?;
         const rx = std.math.sin(t);
-        const ry = std.math.sin(t * 0.2) + 1.0;
+        const ry = (std.math.sin(t * 0.2) + 1.0) * 0.2;
         const rz = std.math.cos(t);
         const v = zm.normalize3(zm.f32x4(rx, ry, rz, 0.0));
-        const radius = 4.0;
+        const radius = 2.0;
         light_ptr.transform.position = zm.f32x4(v[0] * radius, v[1] * radius, v[2] * radius, 0.0);
         const light_cube_ptr = e.nodes.get(light_cube[i]).?;
         light_cube_ptr.transform.rotation = zm.quatFromNormAxisAngle(.{ v[0], v[1], v[2], 0.0 }, std.math.pi * e.getTime() * 0.5);

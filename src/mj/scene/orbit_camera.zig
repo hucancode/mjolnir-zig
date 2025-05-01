@@ -5,7 +5,7 @@ const Camera = @import("camera.zig").Camera;
 pub const OrbitCamera = struct {
     camera: Camera,
     target: zm.Vec = .{ 0.0, 0.0, 0.0, 0.0 },
-    distance: f32 = 10.0,
+    distance: f32 = 3.0,
     yaw: f32 = 0.0, // Rotation around Y-axis
     pitch: f32 = 0.0, // Rotation around X-axis
     min_distance: f32 = 1.0,

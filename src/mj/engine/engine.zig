@@ -10,7 +10,7 @@ const zm = @import("zmath");
 const zstbi = @import("zstbi");
 const zgui = @import("zgui");
 const context = @import("context.zig").get();
-const animation = @import("../geometry/animation.zig");
+const PlayMode = @import("../geometry/animation.zig").PlayMode;
 const SkeletalMesh = @import("../geometry/skeletal_mesh.zig").SkeletalMesh;
 const StaticMesh = @import("../geometry/static_mesh.zig").StaticMesh;
 const Material = @import("../material/pbr.zig").Material;
@@ -487,7 +487,7 @@ pub const Engine = struct {
     }
 
     // Original playAnimation with improved error handling
-    pub fn playAnimation(self: *Engine, node: Handle, name: []const u8, mode: animation.PlayMode) !void {
+    pub fn playAnimation(self: *Engine, node: Handle, name: []const u8, mode: PlayMode) !void {
         const node_ptr = self.nodes.get(node) orelse return error.InvalidNode;
         if (node_ptr.data != .skeletal_mesh) {
             return error.NotASkeletalMesh;
