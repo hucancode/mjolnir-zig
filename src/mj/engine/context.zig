@@ -79,8 +79,6 @@ pub const VulkanContext = struct {
     vkb: BaseDispatch,
     vki: Instance,
     vkd: Device,
-    instance: vk.Instance,
-    device: vk.Device,
     surface: vk.SurfaceKHR,
     surface_capabilities: vk.SurfaceCapabilitiesKHR,
     surface_formats: []vk.SurfaceFormatKHR,

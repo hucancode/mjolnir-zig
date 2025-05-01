@@ -13,3 +13,6 @@
 [submodule "lib/zglfw"]
 	path = lib/zglfw
 	url = git@github.com:zig-gamedev/zglfw.git
+[submodule "lib/zgui"]
+	path = lib/zgui
+	url = git@github.com:zig-gamedev/zgui.git

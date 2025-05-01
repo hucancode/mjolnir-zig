@@ -8,6 +8,7 @@ const vk = @import("vulkan");
 const zcgltf = @import("zmesh").io.zcgltf;
 const zm = @import("zmath");
 const zstbi = @import("zstbi");
+const zgui = @import("zgui");
 const context = @import("context.zig").get();
 const animation = @import("../geometry/animation.zig");
 const SkeletalMesh = @import("../geometry/skeletal_mesh.zig").SkeletalMesh;
@@ -35,6 +36,7 @@ const MeshBuilder = @import("builder.zig").MeshBuilder;
 const SkeletalMeshBuilder = @import("builder.zig").SkeletalMeshBuilder;
 const NodeBuilder = @import("builder.zig").NodeBuilder;
 const GLTFLoader = @import("../loader/gltf.zig").GLTFLoader;
+const ImGui = @import("gui.zig").ImGui;
 
 const RENDER_FPS = 60.0;
 const FRAME_TIME = 1.0 / RENDER_FPS;
@@ -47,6 +49,7 @@ pub const Engine = struct {
     window: *glfw.Window,
     renderer: Renderer,
     scene: Scene,
+    gui: ImGui,
     last_frame_timestamp: Instant,
     last_update_timestamp: Instant,
     start_timestamp: Instant,
@@ -118,6 +121,7 @@ pub const Engine = struct {
             const h: f32 = @floatFromInt(self.renderer.extent.height);
             self.scene.camera.projection.perspective.aspect_ratio = w / h;
         }
+        try self.gui.init(self);
         zstbi.init(allocator);
         std.debug.print("Engine initialized\n", .{});
     }
@@ -255,6 +259,11 @@ pub const Engine = struct {
             }
         }
         self.renderer.getUniform().write(std.mem.asBytes(&scene_uniform));
+        zgui.backend.newFrame(self.renderer.extent.width, self.renderer.extent.height);
+        _ = zgui.DockSpaceOverViewport(0, zgui.getMainViewport(), .{ .passthru_central_node = true });
+        var showdemo = true;
+        zgui.showDemoWindow(&showdemo);
+        zgui.backend.render(@intFromEnum(command_buffer));
         try self.renderer.end(image_idx);
     }
 
