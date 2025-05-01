@@ -16,6 +16,9 @@
         .zstbi = .{
             .path = "lib/zstbi",
         },
+        .zgui = .{
+            .path = "lib/zgui",
+        },
         .vulkan_zig = .{
             .path = "lib/vulkan",
         },

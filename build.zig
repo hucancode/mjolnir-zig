@@ -31,6 +31,9 @@ fn add_dependency(b: *std.Build, exe: *std.Build.Step.Compile, target: std.Build
     exe.root_module.addImport("zmath", zmath.module("root"));
     const zstbi = b.dependency("zstbi", .{});
     exe.root_module.addImport("zstbi", zstbi.module("root"));
+    const zgui = b.dependency("zgui", .{ .backend = .glfw_vulkan });
+    exe.root_module.addImport("zgui", zgui.module("root"));
+    exe.linkLibrary(zgui.artifact("imgui"));
     const zmesh = b.dependency("zmesh", .{});
     exe.root_module.addImport("zmesh", zmesh.module("root"));
     exe.linkLibrary(zmesh.artifact("zmesh"));
