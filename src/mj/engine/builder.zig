@@ -316,6 +316,20 @@ pub const NodeBuilder = struct {
         return self;
     }
 
+    pub fn withNewStaticMesh(self: *NodeBuilder, geometry: Geometry, material: Handle) *NodeBuilder {
+        const mesh = self.engine.makeMesh()
+            .withGeometry(geometry)
+            .withMaterial(material)
+            .build();
+        return self.withStaticMesh(mesh);
+    }
+
+    pub fn withNewSkeletalMesh(self: *NodeBuilder, geometry: Geometry, material: Handle) *NodeBuilder {
+        const mesh = self.engine.createSkeletalMesh(geometry, material);
+        self.withSkeletalMesh(mesh);
+        return self;
+    }
+
     pub fn atRoot(self: *NodeBuilder) *NodeBuilder {
         self.engine.parentNode(self.engine.scene.root, self.handle);
         return self;

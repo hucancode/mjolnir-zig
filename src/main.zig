@@ -45,6 +45,19 @@ fn setup() !void {
         .withMaterial(material)
         .build();
 
+    // Create ground plane
+    const ground_material = e.makeMaterial()
+        // .withColor(.{ 0.5, 0.5, 0.5, 1.0 })
+        .build();
+
+    _ = e.spawn()
+        .atRoot()
+        .withNewStaticMesh(Geometry.quad(.{ 1.0, 1.0, 1.0, 1.0 }), ground_material)
+        .withPosition(.{ -10.0, 0.0, 10.0, 0.0 })
+        .withRotation(zm.quatFromNormAxisAngle(.{ 1.0, 0.0, 0.0, 0.0 }, -std.math.pi * 0.5))
+        .withScale(.{ 20.0, 20.0, 20.0, 0.0 })
+        .build();
+
     // Set up orbit camera
     e.scene.setCameraMode(.orbit);
     e.scene.orbit_camera.setTarget(.{ 0.0, 0.0, 0.0, 0.0 });
