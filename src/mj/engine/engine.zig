@@ -219,7 +219,7 @@ pub const Engine = struct {
                             light_uniform.kind = 2;
                             light_uniform.angle = angle;
                             light_uniform.position = zm.mul(zm.f32x4(0.0, 0.0, 0.0, 1.0), world_matrix);
-                            light_uniform.direction = zm.mul(zm.f32x4(0.0, 0.0, 1.0, 1.0), world_matrix);
+                            light_uniform.direction = zm.mul(zm.f32x4(0.0, -1.0, 0.0, 0.0), world_matrix);
                         },
                     }
                     scene_uniform.pushLight(light_uniform);

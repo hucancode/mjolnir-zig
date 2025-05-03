@@ -14,8 +14,9 @@ const TITLE = "Hello Mjolnir!";
 // disable safety to avoid excessive logs, enable it later to fix memory leaks
 var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = false }){};
 const allocator = gpa.allocator();
-var light: [3]Handle = undefined;
-var light_cube: [3]Handle = undefined;
+const LIGHT_COUNT = 5;
+var light: [LIGHT_COUNT]Handle = undefined;
+var light_cube: [LIGHT_COUNT]Handle = undefined;
 var e: mj.Engine = undefined;
 
 pub fn main() !void {
@@ -45,6 +46,18 @@ fn setup() !void {
         .withMaterial(material)
         .build();
 
+    // Create ground plane
+    const ground_material = e.makeMaterial()
+        // .withColor(.{ 0.5, 0.5, 0.5, 1.0 })
+        .build();
+
+    _ = e.spawn()
+        .atRoot()
+        .withNewStaticMesh(Geometry.quad(.{ 1.0, 1.0, 1.0, 1.0 }), ground_material)
+        .withPosition(.{ -10.0, 0.0, -10.0, 0.0 })
+        .withScale(.{ 20.0, 20.0, 20.0, 0.0 })
+        .build();
+
     // Set up orbit camera
     e.scene.setCameraMode(.orbit);
     e.scene.orbit_camera.setTarget(.{ 0.0, 0.0, 0.0, 0.0 });
@@ -66,21 +79,35 @@ fn setup() !void {
             std.math.sin(@as(f32, @floatFromInt(i))),
             1.0,
         };
-        light[i] = e.spawn()
-            .atRoot()
-            .withNewPointLight(color)
-            .build();
+
+        // Alternating between point lights and spot lights
+        if (i % 2 == 0) {
+            const spotAngle = std.math.pi / 6.0; // 30 degrees cone
+            light[i] = e.spawn()
+                .atRoot()
+                .withNewSpotLight(color)
+                .withLightAngle(spotAngle)
+                .withLightRadius(5.0) // Longer range for spot lights
+                .build();
+        } else {
+            light[i] = e.spawn()
+                .atRoot()
+                .withNewPointLight(color)
+                .build();
+        }
+
         light_cube[i] = e.spawn()
             .withStaticMesh(mesh)
             .withScale(zm.f32x4s(0.15))
+            .withPosition(.{ 0.0, 1.0, 0.0, 0.0 })
             .asChildOf(light[i])
             .build();
     }
-    _ = e.spawn()
-        .atRoot()
-        .withNewDirectionalLight(.{ 0.01, 0.01, 0.01, 0.0 })
-        .withPosition(.{ 0.0, 10.0, 5.0, 0.0 })
-        .build();
+    // _ = e.spawn()
+    //     .atRoot()
+    //     .withNewDirectionalLight(.{ 0.01, 0.01, 0.01, 0.0 })
+    //     .withPosition(.{ 0.0, 10.0, 5.0, 0.0 })
+    //     .build();
     const ScrollHandler = struct {
         fn scroll_callback(window: *glfw.Window, xoffset: f64, yoffset: f64) callconv(.C) void {
             _ = window;
@@ -128,10 +155,10 @@ fn update() void {
         const t = e.getTime() + @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(light.len)) * std.math.pi * 2.0;
         const light_ptr = e.nodes.get(light[i]).?;
         const rx = std.math.sin(t);
-        const ry = (std.math.sin(t * 0.2) + 1.0) * 0.2;
+        const ry = (std.math.sin(t * 0.2) + 1.0) * 0.5 + 2.0;
         const rz = std.math.cos(t);
         const v = zm.normalize3(zm.f32x4(rx, ry, rz, 0.0));
-        const radius = 2.0;
+        const radius = 4.0;
         light_ptr.transform.position = zm.f32x4(v[0] * radius, v[1] * radius, v[2] * radius, 0.0);
         const light_cube_ptr = e.nodes.get(light_cube[i]).?;
         light_cube_ptr.transform.rotation = zm.quatFromNormAxisAngle(.{ v[0], v[1], v[2], 0.0 }, std.math.pi * e.getTime() * 0.5);

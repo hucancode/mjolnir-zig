@@ -289,6 +289,37 @@ pub const NodeBuilder = struct {
         return self.withLight(handle);
     }
 
+    pub fn withNewSpotLight(self: *NodeBuilder, color: zm.Vec) *NodeBuilder {
+        const handle = self.engine.lights.malloc();
+        const light_ptr = self.engine.lights.get(handle).?;
+        light_ptr.data = .{
+            .spot = std.math.pi / 4.0,
+        };
+        light_ptr.color = color;
+        std.debug.print("create new spot light\n", .{});
+        return self.withLight(handle);
+    }
+
+    pub fn withLightRadius(self: *NodeBuilder, radius: f32) *NodeBuilder {
+        if (self.engine.nodes.get(self.handle)) |node| {
+            if (node.data == .light) {
+                // TODO: set radius for this light
+                _ = radius;
+            }
+        }
+        return self;
+    }
+
+    pub fn withLightAngle(self: *NodeBuilder, angle: f32) *NodeBuilder {
+        if (self.engine.nodes.get(self.handle)) |node| {
+            if (node.data == .light) {
+                // TODO: set angle for this light
+                _ = angle;
+            }
+        }
+        return self;
+    }
+
     pub fn withLight(self: *NodeBuilder, light: Handle) *NodeBuilder {
         if (self.engine.nodes.get(self.handle)) |node| {
             node.data = .{ .light = light };
@@ -313,6 +344,20 @@ pub const NodeBuilder = struct {
                 .pose = pose,
             } };
         }
+        return self;
+    }
+
+    pub fn withNewStaticMesh(self: *NodeBuilder, geometry: Geometry, material: Handle) *NodeBuilder {
+        const mesh = self.engine.makeMesh()
+            .withGeometry(geometry)
+            .withMaterial(material)
+            .build();
+        return self.withStaticMesh(mesh);
+    }
+
+    pub fn withNewSkeletalMesh(self: *NodeBuilder, geometry: Geometry, material: Handle) *NodeBuilder {
+        const mesh = self.engine.createSkeletalMesh(geometry, material);
+        self.withSkeletalMesh(mesh);
         return self;
     }
 

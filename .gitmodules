@@ -18,4 +18,4 @@
 	url = git@github.com:zig-gamedev/zgui.git
 [submodule "lib/vulkan_headers"]
 	path = lib/vulkan_headers
-	url = git@github:KhronosGroup/Vulkan-Headers
+	url = git@github.com:KhronosGroup/Vulkan-Headers

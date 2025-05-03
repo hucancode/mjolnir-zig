@@ -21,7 +21,7 @@ layout(location = 2) out vec2 outUV;
 layout(location = 3) out vec3 outPosition;
 
 void main() {
-    outNormal = (world * vec4(inNormal, 1.0)).xyz;
+    outNormal = mat3(world) * inNormal;
     outColor = inColor;
     outUV = inUV;
     vec4 worldPosition = world * vec4(inPosition, 1.0);
