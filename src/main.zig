@@ -79,10 +79,23 @@ fn setup() !void {
             std.math.sin(@as(f32, @floatFromInt(i))),
             1.0,
         };
-        light[i] = e.spawn()
-            .atRoot()
-            .withNewPointLight(color)
-            .build();
+
+        // Alternating between point lights and spot lights
+        if (i % 2 == 0) {
+            const spotAngle = std.math.pi / 6.0; // 30 degrees cone
+            light[i] = e.spawn()
+                .atRoot()
+                .withNewSpotLight(color)
+                .withLightAngle(spotAngle)
+                .withLightRadius(5.0) // Longer range for spot lights
+                .build();
+        } else {
+            light[i] = e.spawn()
+                .atRoot()
+                .withNewPointLight(color)
+                .build();
+        }
+
         light_cube[i] = e.spawn()
             .withStaticMesh(mesh)
             .withScale(zm.f32x4s(0.15))
@@ -145,7 +158,7 @@ fn update() void {
         const ry = (std.math.sin(t * 0.2) + 1.0) * 0.5 + 2.0;
         const rz = std.math.cos(t);
         const v = zm.normalize3(zm.f32x4(rx, ry, rz, 0.0));
-        const radius = 2.0;
+        const radius = 4.0;
         light_ptr.transform.position = zm.f32x4(v[0] * radius, v[1] * radius, v[2] * radius, 0.0);
         const light_cube_ptr = e.nodes.get(light_cube[i]).?;
         light_cube_ptr.transform.rotation = zm.quatFromNormAxisAngle(.{ v[0], v[1], v[2], 0.0 }, std.math.pi * e.getTime() * 0.5);

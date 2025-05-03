@@ -1,8 +1,9 @@
 #version 450
 const uint MAX_LIGHTS = 10;
-const int POINT_LIGHT = 0;
-const int DIRECTIONAL_LIGHT = 1;
-const int SPOT_LIGHT = 2;
+const uint POINT_LIGHT = 0;
+const uint DIRECTIONAL_LIGHT = 1;
+const uint SPOT_LIGHT = 2;
+const float PI = 3.14159265359;
 
 struct Light {
     vec4 color;
@@ -11,7 +12,7 @@ struct Light {
     uint kind;
     float angle;
     float radius;
-    // padding x2
+    // padding x1
 };
 
 layout(std140, set = 0, binding = 0) uniform Uniforms {
@@ -53,13 +54,13 @@ vec3 calculateLighting(Light light, vec3 normal, vec3 position, vec3 viewDir, ve
     return diffuse;
   }
   if (light.kind == SPOT_LIGHT) {
-    vec3 surfaceToLight = normalize(light.position.xyz - position);
-    float theta = dot(surfaceToLight, -light.direction.xyz);
-    float epsilon = light.angle*0.1;
-    float attenuation = clamp((theta - light.angle * 0.9) / epsilon, 0.0, 1.0);
-    vec3 diffuse = max(dot(normal, surfaceToLight), 0.0) * light.color.rgb * attenuation * diffuseStrength;
-    vec3 specular = vec3(0.1) * pow(max(dot(normal, normalize(surfaceToLight + viewDir)), 0.0), specularStrength);
-    return diffuse + specular;
+    light.angle = PI*0.1;
+    vec3 lightToSurface = normalize(position - light.position.xyz);
+    float delta = abs(acos(dot(lightToSurface, light.direction.xyz)));
+    if (delta > PI) {
+        delta -= PI*2;
+    }
+    return vec3(smoothstep(0.0, 0.85, max(0.0, 1.0 - delta/light.angle)));
   }
   return vec3(0.0);
 }

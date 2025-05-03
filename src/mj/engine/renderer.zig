@@ -11,9 +11,9 @@ pub const MAX_LIGHTS = 10;
 pub const LightUniform = struct {
     color: zm.Vec = .{ 1.0, 1.0, 1.0, 1.0 },
     position: zm.Vec = .{ 0.0, 0.0, 0.0, 1.0 },
-    direction: zm.Vec = .{ 0.0, 0.0, 0.0, 1.0 },
+    direction: zm.Vec = .{ 0.0, -1.0, 0.0, 0.0 },
     kind: u32 = 0,
-    angle: f32 = 0.0,
+    angle: f32 = 0.2,
     radius: f32 = 10.0,
 };
 
