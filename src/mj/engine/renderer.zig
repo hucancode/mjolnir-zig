@@ -14,7 +14,7 @@ pub const LightUniform = struct {
     direction: zm.Vec = .{ 0.0, 0.0, 0.0, 1.0 },
     kind: u32 = 0,
     angle: f32 = 0.0,
-    radius: f32 = 5.0,
+    radius: f32 = 10.0,
 };
 
 pub const SceneUniform = struct {

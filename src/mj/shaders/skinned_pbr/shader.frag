@@ -32,36 +32,34 @@ layout(location = 2) in vec2 uv;
 layout(location = 3) in vec3 position;
 layout(location = 0) out vec4 outColor;
 
-vec3 calculateLighting(Light light, vec3 normal, vec3 position, vec3 viewDir, vec3 albedo) {
-  const float ambientStrength = 0.001;
-  const float specularStrength = 0.01;
-  const float diffuseStrength = 0.1;
+const vec3 ambientColor = vec3(0.0, 0.5, 1.0);
+const float ambientStrength = 0.05;
+const float specularStrength = 0.5;
+const float shininess = 20.0;
+const float diffuseStrength = 0.5;
 
-  vec3 surfaceToLight;
-  float attenuation = 10.0;
+vec3 calculateLighting(Light light, vec3 normal, vec3 position, vec3 viewDir, vec3 albedo) {
   if (light.kind == POINT_LIGHT) {
-    surfaceToLight = normalize(light.position.xyz - position);
-    float distance = length(light.position.xyz - position);
-    float normalizedDist = distance / max(0.001, light.radius);
-    attenuation = max(0.0, 1.0 - normalizedDist * normalizedDist);
-    vec3 diffuse = max(dot(normal, surfaceToLight), 0.0) * light.color.rgb * attenuation * diffuseStrength;
-    vec3 ambient = ambientStrength * light.color.rgb;
-    vec3 specular = vec3(0.1) * pow(max(dot(normal, normalize(surfaceToLight + viewDir)), 0.0), specularStrength);
-    return ambient + diffuse + specular;
-  } else if (light.kind == DIRECTIONAL_LIGHT) {
-    surfaceToLight = -light.direction.xyz;
+    vec3 surfaceToLight = normalize(light.position.xyz - position);
+    vec3 diffuse = max(0.0, dot(surfaceToLight, normal)) * diffuseStrength * light.color.rgb;
+    vec3 specular = pow(dot(reflect(-surfaceToLight, normal), viewDir), shininess) * specularStrength * light.color.rgb;
+    float distance = length(position - light.position.xyz);
+    float attenuation = max(0.0, 1.0 - distance / max(0.001, light.radius));
+    return (diffuse + specular) * pow(attenuation, 2.0);
+  }
+  if (light.kind == DIRECTIONAL_LIGHT) {
+    vec3 surfaceToLight = -light.direction.xyz;
     vec3 diffuse = max(dot(normal, surfaceToLight), 0.0) * albedo * diffuseStrength * 0.1;
-    vec3 ambient = ambientStrength * 0.1 * light.color.rgb;
-    return ambient + diffuse;
-  } else if (light.kind == SPOT_LIGHT) {
-    surfaceToLight = normalize(light.position.xyz - position);
+    return diffuse;
+  }
+  if (light.kind == SPOT_LIGHT) {
+    vec3 surfaceToLight = normalize(light.position.xyz - position);
     float theta = dot(surfaceToLight, -light.direction.xyz);
     float epsilon = light.angle*0.1;
-    attenuation = clamp((theta - light.angle * 0.9) / epsilon, 0.0, 1.0);
+    float attenuation = clamp((theta - light.angle * 0.9) / epsilon, 0.0, 1.0);
     vec3 diffuse = max(dot(normal, surfaceToLight), 0.0) * light.color.rgb * attenuation * diffuseStrength;
-    vec3 ambient = ambientStrength * light.color.rgb;
     vec3 specular = vec3(0.1) * pow(max(dot(normal, normalize(surfaceToLight + viewDir)), 0.0), specularStrength);
-    return ambient + diffuse + specular;
+    return diffuse + specular;
   }
   return vec3(0.0);
 }
@@ -70,9 +68,9 @@ void main() {
   vec3 cameraPosition = -inverse(view)[3].xyz;
   vec3 albedo = texture(albedoSampler, uv).rgb;
   vec3 viewDir = normalize(cameraPosition.xyz - position);
-  vec3 result = vec3(0.0);
+  vec3 result = ambientColor * ambientStrength;
   for (int i = 0; i < min(lightCount, MAX_LIGHTS); i++) {
-    result += calculateLighting(lights[i], normal, position, viewDir, albedo);
+    result += calculateLighting(lights[i], normalize(normal), position, viewDir, albedo);
   }
   result += albedo * 0.1;
   outColor = vec4(result, 1.0);

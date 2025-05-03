@@ -153,10 +153,10 @@ pub const Geometry = struct {
 
     pub fn quad(comptime color: [4]f32) Geometry {
         const vertices = comptime [_]Vertex{
-            .{ .position = .{ 0.0, 0.0, 0.0 }, .color = color, .normal = VEC_FORWARD, .uv = .{ 0.0, 0.0 } },
-            .{ .position = .{ 1.0, 0.0, 0.0 }, .color = color, .normal = VEC_FORWARD, .uv = .{ 1.0, 0.0 } },
-            .{ .position = .{ 1.0, 1.0, 0.0 }, .color = color, .normal = VEC_FORWARD, .uv = .{ 1.0, 1.0 } },
-            .{ .position = .{ 0.0, 1.0, 0.0 }, .color = color, .normal = VEC_FORWARD, .uv = .{ 0.0, 1.0 } },
+            .{ .position = .{ 0.0, 0.0, 0.0 }, .color = color, .normal = VEC_UP, .uv = .{ 0.0, 0.0 } },
+            .{ .position = .{ 0.0, 0.0, 1.0 }, .color = color, .normal = VEC_UP, .uv = .{ 0.0, 1.0 } },
+            .{ .position = .{ 1.0, 0.0, 1.0 }, .color = color, .normal = VEC_UP, .uv = .{ 1.0, 1.0 } },
+            .{ .position = .{ 1.0, 0.0, 0.0 }, .color = color, .normal = VEC_UP, .uv = .{ 1.0, 0.0 } },
         };
         const indices = comptime [_]u32{
             0, 1, 2, 2, 3, 0,

@@ -33,8 +33,8 @@ void main() {
         inWeights.z * bones[inJoints.z] +
         inWeights.w * bones[inJoints.w];
     vec4 skinnedPosition = skinMatrix * vec4(inPosition, 1.0);
-    vec4 skinnedNormal = normalize(skinMatrix * vec4(inNormal, 0.0));
-    outNormal = (world * skinnedNormal).xyz;
+    vec3 skinnedNormal = mat3(skinMatrix) * inNormal;
+    outNormal = normalize(mat3(world) * skinnedNormal);
     outColor = inColor;
     outUV = inUV;
     vec4 worldPosition = world * skinnedPosition;

@@ -14,8 +14,9 @@ const TITLE = "Hello Mjolnir!";
 // disable safety to avoid excessive logs, enable it later to fix memory leaks
 var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = false }){};
 const allocator = gpa.allocator();
-var light: [3]Handle = undefined;
-var light_cube: [3]Handle = undefined;
+const LIGHT_COUNT = 5;
+var light: [LIGHT_COUNT]Handle = undefined;
+var light_cube: [LIGHT_COUNT]Handle = undefined;
 var e: mj.Engine = undefined;
 
 pub fn main() !void {
@@ -53,8 +54,7 @@ fn setup() !void {
     _ = e.spawn()
         .atRoot()
         .withNewStaticMesh(Geometry.quad(.{ 1.0, 1.0, 1.0, 1.0 }), ground_material)
-        .withPosition(.{ -10.0, 0.0, 10.0, 0.0 })
-        .withRotation(zm.quatFromNormAxisAngle(.{ 1.0, 0.0, 0.0, 0.0 }, -std.math.pi * 0.5))
+        .withPosition(.{ -10.0, 0.0, -10.0, 0.0 })
         .withScale(.{ 20.0, 20.0, 20.0, 0.0 })
         .build();
 
@@ -86,14 +86,15 @@ fn setup() !void {
         light_cube[i] = e.spawn()
             .withStaticMesh(mesh)
             .withScale(zm.f32x4s(0.15))
+            .withPosition(.{ 0.0, 1.0, 0.0, 0.0 })
             .asChildOf(light[i])
             .build();
     }
-    _ = e.spawn()
-        .atRoot()
-        .withNewDirectionalLight(.{ 0.01, 0.01, 0.01, 0.0 })
-        .withPosition(.{ 0.0, 10.0, 5.0, 0.0 })
-        .build();
+    // _ = e.spawn()
+    //     .atRoot()
+    //     .withNewDirectionalLight(.{ 0.01, 0.01, 0.01, 0.0 })
+    //     .withPosition(.{ 0.0, 10.0, 5.0, 0.0 })
+    //     .build();
     const ScrollHandler = struct {
         fn scroll_callback(window: *glfw.Window, xoffset: f64, yoffset: f64) callconv(.C) void {
             _ = window;
@@ -141,7 +142,7 @@ fn update() void {
         const t = e.getTime() + @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(light.len)) * std.math.pi * 2.0;
         const light_ptr = e.nodes.get(light[i]).?;
         const rx = std.math.sin(t);
-        const ry = (std.math.sin(t * 0.2) + 1.0) * 0.2;
+        const ry = (std.math.sin(t * 0.2) + 1.0) * 0.5 + 2.0;
         const rz = std.math.cos(t);
         const v = zm.normalize3(zm.f32x4(rx, ry, rz, 0.0));
         const radius = 2.0;
