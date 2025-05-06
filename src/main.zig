@@ -14,7 +14,7 @@ const TITLE = "Hello Mjolnir!";
 // disable safety to avoid excessive logs, enable it later to fix memory leaks
 var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = false }){};
 const allocator = gpa.allocator();
-const LIGHT_COUNT = 5;
+const LIGHT_COUNT = 1;
 var light: [LIGHT_COUNT]Handle = undefined;
 var light_cube: [LIGHT_COUNT]Handle = undefined;
 var e: mj.Engine = undefined;
@@ -53,6 +53,13 @@ fn setup() !void {
 
     _ = e.spawn()
         .atRoot()
+        .withNewStaticMesh(Geometry.cube(.{ 1.0, 1.0, 1.0, 1.0 }), material)
+        .withPosition(.{ 0.0, 2.0, 1.0, 0.0 })
+        .withScale(.{0.1, 0.1, 0.1, 1.0})
+        .build();
+
+    _ = e.spawn()
+        .atRoot()
         .withNewStaticMesh(Geometry.quad(.{ 1.0, 1.0, 1.0, 1.0 }), ground_material)
         .withPosition(.{ -10.0, 0.0, -10.0, 0.0 })
         .withScale(.{ 20.0, 20.0, 20.0, 0.0 })
@@ -82,31 +89,37 @@ fn setup() !void {
 
         // Alternating between point lights and spot lights
         if (i % 2 == 0) {
-            const spotAngle = std.math.pi / 6.0; // 30 degrees cone
+            const spotAngle = std.math.pi / 4.0;
             light[i] = e.spawn()
                 .atRoot()
                 .withNewSpotLight(color)
                 .withLightAngle(spotAngle)
-                .withLightRadius(5.0) // Longer range for spot lights
+                .withLightRadius(15.0)
+                .withCastShadow(true)
                 .build();
         } else {
             light[i] = e.spawn()
                 .atRoot()
                 .withNewPointLight(color)
+                .withLightRadius(15.0)
+                .withCastShadow(true)
                 .build();
         }
 
         light_cube[i] = e.spawn()
             .withStaticMesh(mesh)
             .withScale(zm.f32x4s(0.15))
-            .withPosition(.{ 0.0, 1.0, 0.0, 0.0 })
+            .withPosition(.{ 0.0, -3.0, 0.0, 0.0 })
             .asChildOf(light[i])
             .build();
     }
+
+    // Add a directional light with shadow for overall illumination
     // _ = e.spawn()
     //     .atRoot()
-    //     .withNewDirectionalLight(.{ 0.01, 0.01, 0.01, 0.0 })
+    //     .withNewDirectionalLight(.{ 0.3, 0.3, 0.3, 0.0 })
     //     .withPosition(.{ 0.0, 10.0, 5.0, 0.0 })
+    //     .withCastShadow(true)
     //     .build();
     const ScrollHandler = struct {
         fn scroll_callback(window: *glfw.Window, xoffset: f64, yoffset: f64) callconv(.C) void {
@@ -159,7 +172,7 @@ fn update() void {
         const rz = std.math.cos(t);
         const v = zm.normalize3(zm.f32x4(rx, ry, rz, 0.0));
         const radius = 4.0;
-        light_ptr.transform.position = zm.f32x4(v[0] * radius, v[1] * radius, v[2] * radius, 0.0);
+        light_ptr.transform.position = zm.f32x4(v[0] * radius, 3.0 + v[1] * radius, v[2] * radius, 0.0);
         const light_cube_ptr = e.nodes.get(light_cube[i]).?;
         light_cube_ptr.transform.rotation = zm.quatFromNormAxisAngle(.{ v[0], v[1], v[2], 0.0 }, std.math.pi * e.getTime() * 0.5);
     }

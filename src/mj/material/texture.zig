@@ -56,13 +56,47 @@ pub const Texture = struct {
     }
 };
 
-pub fn createDepthImage(format: vk.Format, width: u32, height: u32) !ImageBuffer {
+pub const DepthTexture = struct {
+    buffer: ImageBuffer = undefined,
+    sampler: vk.Sampler = .null_handle,
+
+    pub fn init(self: *DepthTexture, width: u32, height: u32) !void {
+        self.buffer = try createDepthImage(
+            width,
+            height,
+        );
+        const sampler_info = vk.SamplerCreateInfo{
+            .mag_filter = .linear,
+            .min_filter = .linear,
+            .address_mode_u = .clamp_to_edge,
+            .address_mode_v = .clamp_to_edge,
+            .address_mode_w = .clamp_to_edge,
+            .anisotropy_enable = vk.FALSE,
+            .max_anisotropy = 1.0,
+            .border_color = .int_opaque_white,
+            .unnormalized_coordinates = vk.FALSE,
+            .compare_enable = vk.FALSE,
+            .compare_op = .always,
+            .mipmap_mode = .linear,
+            .mip_lod_bias = 0.0,
+            .min_lod = 0.0,
+            .max_lod = 0.0,
+        };
+        self.sampler = try context.*.vkd.createSampler(&sampler_info, null);
+    }
+    pub fn deinit(self: *Texture) void {
+        self.buffer.deinit();
+        context.*.vkd.destroySampler(self.sampler, null);
+    }
+};
+
+pub fn createDepthImage(width: u32, height: u32) !ImageBuffer {
     const create_info = vk.ImageCreateInfo{
         .image_type = .@"2d",
         .extent = .{ .width = width, .height = height, .depth = 1 },
         .mip_levels = 1,
         .array_layers = 1,
-        .format = format,
+        .format = .d32_sfloat,
         .tiling = .optimal,
         .initial_layout = .undefined,
         .usage = .{ .depth_stencil_attachment_bit = true },
@@ -74,7 +108,7 @@ pub fn createDepthImage(format: vk.Format, width: u32, height: u32) !ImageBuffer
         .memory = undefined,
         .width = width,
         .height = height,
-        .format = format,
+        .format = .d32_sfloat,
         .view = undefined,
     };
     const mem_requirements = context.*.vkd.getImageMemoryRequirements(result.image);
@@ -111,6 +145,6 @@ pub fn createDepthImage(format: vk.Format, width: u32, height: u32) !ImageBuffer
         @ptrCast(&barrier),
     );
     try context.*.endSingleTimeCommand(cmd_buffer);
-    result.view = try createImageView(result.image, format, .{ .depth_bit = true });
+    result.view = try createImageView(result.image, .d32_sfloat, .{ .depth_bit = true });
     return result;
 }

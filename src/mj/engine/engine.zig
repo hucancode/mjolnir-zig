@@ -22,12 +22,14 @@ const Node = @import("../scene/node.zig").Node;
 const Transform = @import("../scene/node.zig").Transform;
 const Scene = @import("../scene/scene.zig").Scene;
 const Handle = @import("resource.zig").Handle;
-const LightUniform = @import("renderer.zig").LightUniform;
+const LightUniform = @import("renderer.zig").SingleLightUniform;
 const MAX_LIGHTS = @import("renderer.zig").MAX_LIGHTS;
+const MAX_SHADOW_MAPS = @import("renderer.zig").MAX_SHADOW_MAPS;
 const QueueFamilyIndices = @import("context.zig").QueueFamilyIndices;
 const Renderer = @import("renderer.zig").Renderer;
 const ResourcePool = @import("resource.zig").ResourcePool;
 const SceneUniform = @import("renderer.zig").SceneUniform;
+const SceneLightUniform = @import("renderer.zig").SceneLightUniform;
 const SwapchainSupport = @import("context.zig").SwapchainSupport;
 const TextureBuilder = @import("builder.zig").TextureBuilder;
 const MaterialBuilder = @import("builder.zig").MaterialBuilder;
@@ -38,10 +40,10 @@ const NodeBuilder = @import("builder.zig").NodeBuilder;
 const GLTFLoader = @import("../loader/gltf.zig").GLTFLoader;
 const ImGui = @import("gui.zig").ImGui;
 
-const RENDER_FPS = 60.0;
+const RENDER_FPS = 10.0;
 const FRAME_TIME = 1.0 / RENDER_FPS;
 const FRAME_TIME_NANO: u64 = @intFromFloat(FRAME_TIME * 1_000_000_000.0);
-const UPDATE_FPS = 60.0;
+const UPDATE_FPS = 10.0;
 const UPDATE_FRAME_TIME = 1.0 / UPDATE_FPS;
 const UPDATE_FRAME_TIME_NANO: u64 = @intFromFloat(UPDATE_FRAME_TIME * 1_000_000_000.0);
 
@@ -64,13 +66,16 @@ pub const Engine = struct {
     nodes: ResourcePool(Node),
     allocator: Allocator,
 
+    // Debug
+    debug_shadow_map_idx: u16 = 0,
+    shadow_map_texture_id: u64 = 0,
+
     pub fn beginTransaction(self: *Engine) void {
         self.in_transaction = true;
     }
 
     pub fn commitTransaction(self: *Engine) void {
         self.in_transaction = false;
-        // Process all dirty transforms
         for (self.dirty_transforms.items) |handle| {
             if (self.nodes.get(handle)) |node| {
                 _ = node;
@@ -135,100 +140,89 @@ pub const Engine = struct {
         const indices = try context.*.findQueueFamilies(context.*.physical_device);
         var support = try context.*.querySwapchainSupport(context.*.physical_device);
         defer support.deinit();
-        self.renderer = Renderer.init(self.allocator);
+        try self.renderer.init(self.allocator);
         try self.renderer.buildSwapchain(support.capabilities, support.formats, support.present_modes, indices.graphics_family, indices.present_family);
         try self.renderer.buildCommandBuffers();
         try self.renderer.buildSynchronizers();
-        self.renderer.depth_buffer = try createDepthImage(.d32_sfloat, self.renderer.extent.width, self.renderer.extent.height);
-        for (&self.renderer.frames, 0..) |*frame, i| {
-            frame.uniform = try context.*.mallocHostVisibleBuffer(@sizeOf(SceneUniform), .{ .uniform_buffer_bit = true });
-            const alloc_info = vk.DescriptorSetAllocateInfo{
-                .descriptor_pool = context.*.descriptor_pool,
-                .descriptor_set_count = 1,
-                .p_set_layouts = @ptrCast(&self.scene.descriptor_set_layout),
-            };
-            std.debug.print("Creating descriptor set for frame {d} with pool {x} and set layout {x}\n", .{ i, context.*.descriptor_pool, self.scene.descriptor_set_layout });
-            try context.*.vkd.allocateDescriptorSets(&alloc_info, @ptrCast(&frame.descriptor_set));
-            std.debug.print("Created descriptor set\n", .{});
-            const buffer_info = vk.DescriptorBufferInfo{
-                .buffer = frame.uniform.buffer,
-                .offset = 0,
-                .range = @sizeOf(SceneUniform),
-            };
-            const write = vk.WriteDescriptorSet{
-                .dst_set = frame.descriptor_set,
-                .dst_binding = 0,
-                .dst_array_element = 0,
-                .descriptor_type = .uniform_buffer,
-                .descriptor_count = 1,
-                .p_buffer_info = @ptrCast(&buffer_info),
-                .p_image_info = undefined,
-                .p_texel_buffer_view = undefined,
-            };
-            context.*.vkd.updateDescriptorSets(1, @ptrCast(&write), 0, undefined);
-        }
+        self.renderer.depth_buffer = try createDepthImage(self.renderer.extent.width, self.renderer.extent.height);
     }
 
     pub fn tryRender(self: *Engine) !void {
-        const image_idx = try self.renderer.begin();
-        const command_buffer = self.renderer.getCommandBuffer();
+        const now = try Instant.now();
+        const elapsed_seconds = @as(f64, @floatFromInt(now.since(self.start_timestamp))) / 1000_000_000.0;
+        var scene_uniform = SceneUniform{
+            .view = self.scene.viewMatrix(),
+            .projection = self.scene.projectionMatrix(),
+        };
+        var light_uniform = SceneLightUniform{};
+        scene_uniform.time = @floatCast(elapsed_seconds);
         var node_stack = ArrayList(Handle).init(self.allocator);
         defer node_stack.deinit();
         var transform_stack = ArrayList(zm.Mat).init(self.allocator);
         defer transform_stack.deinit();
         try node_stack.append(self.scene.root);
         try transform_stack.append(zm.identity());
-        var scene_uniform = SceneUniform{
-            .view = self.scene.viewMatrix(),
-            .projection = self.scene.projectionMatrix(),
-            .lights = undefined,
-        };
-        const now = try Instant.now();
-        const elapsed_seconds = @as(f64, @floatFromInt(now.since(self.start_timestamp))) / 1000_000_000.0;
-        scene_uniform.time = @floatCast(elapsed_seconds);
         while (node_stack.pop()) |handle| {
             const node = self.nodes.get(handle) orelse continue;
             const parent_matrix = transform_stack.pop() orelse zm.identity();
             const local_matrix = node.transform.toMatrix();
             const world_matrix = zm.mul(local_matrix, parent_matrix);
             for (node.children.items) |child| {
-                // if (child.index == self.scene.root.index) {
-                //     std.debug.print("A node can't have root node as a child {d} {d}\n", .{ handle.index, handle.generation });
-                //     continue;
-                // }
+                try node_stack.append(child);
+                try transform_stack.append(world_matrix);
+            }
+            if (node.data == .light) {
+                const light = node.data.light;
+                const light_ptr = self.lights.get(light) orelse continue;
+                var uniform = LightUniform{
+                    .color = light_ptr.color,
+                    .radius = light_ptr.radius,
+                    .has_shadow = if (light_ptr.cast_shadow) 1 else 0,
+                };
+                switch (light_ptr.data) {
+                    .point => {
+                        uniform.kind = 0;
+                        uniform.position = zm.mul(zm.f32x4(0.0, 0.0, 0.0, 1.0), world_matrix);
+                    },
+                    .directional => {
+                        uniform.kind = 1;
+                        uniform.direction = zm.normalize3(zm.mul(zm.f32x4(0.0, 0.0, 1.0, 0.0), world_matrix));
+                    },
+                    .spot => |angle| {
+                        uniform.kind = 2;
+                        uniform.angle = angle;
+                        uniform.position = zm.mul(zm.f32x4(0.0, 0.0, 0.0, 1.0), world_matrix);
+                        uniform.direction = zm.normalize3(zm.mul(zm.f32x4(0.0, -1.0, 0.0, 0.0), world_matrix));
+                    },
+                }
+                light_uniform.pushLight(uniform);
+            }
+        }
+        const command_buffer = self.renderer.getCommandBuffer();
+        try self.renderShadowMaps(&light_uniform, command_buffer);
+        const image_idx = try self.renderer.begin();
+
+        // Reset node stack for main rendering pass
+        try node_stack.append(self.scene.root);
+        try transform_stack.append(zm.identity());
+
+        // TODO: optimize oppotunity here. maybe don't calculate transform at render time, calculate when user submit object transformations
+
+        while (node_stack.pop()) |handle| {
+            const node = self.nodes.get(handle) orelse continue;
+            const parent_matrix = transform_stack.pop() orelse zm.identity();
+            const local_matrix = node.transform.toMatrix();
+            const world_matrix = zm.mul(local_matrix, parent_matrix);
+            for (node.children.items) |child| {
                 try node_stack.append(child);
                 try transform_stack.append(world_matrix);
             }
             switch (node.data) {
-                .light => |light| {
-                    const light_ptr = self.lights.get(light) orelse continue;
-                    var light_uniform = LightUniform{
-                        .color = light_ptr.color,
-                    };
-                    switch (light_ptr.data) {
-                        .point => {
-                            light_uniform.kind = 0;
-                            light_uniform.position = zm.mul(zm.f32x4(0.0, 0.0, 0.0, 1.0), world_matrix);
-                            //std.debug.print("light uniform = {any}\n", .{light_uniform});
-                        },
-                        .directional => {
-                            light_uniform.kind = 1;
-                            light_uniform.direction = zm.mul(zm.f32x4(0.0, 0.0, 1.0, 1.0), world_matrix);
-                        },
-                        .spot => |angle| {
-                            light_uniform.kind = 2;
-                            light_uniform.angle = angle;
-                            light_uniform.position = zm.mul(zm.f32x4(0.0, 0.0, 0.0, 1.0), world_matrix);
-                            light_uniform.direction = zm.mul(zm.f32x4(0.0, -1.0, 0.0, 0.0), world_matrix);
-                        },
-                    }
-                    scene_uniform.pushLight(light_uniform);
-                },
                 .skeletal_mesh => |*skeletal_mesh| {
                     const mesh = self.skeletal_meshes.get(skeletal_mesh.handle) orelse continue;
                     const material = self.skinned_materials.get(mesh.material) orelse continue;
                     const descriptor_sets = [_]vk.DescriptorSet{
-                        self.renderer.getDescriptorSet(),
+                        self.renderer.getSceneDescriptorSet(),
                         material.descriptor_set,
                     };
                     material.updateBoneBuffer(skeletal_mesh.pose.bone_buffer.buffer, skeletal_mesh.pose.bone_buffer.size);
@@ -245,7 +239,7 @@ pub const Engine = struct {
                     const material = self.materials.get(mesh.material) orelse continue;
                     context.*.vkd.cmdBindPipeline(command_buffer, .graphics, material.pipeline);
                     const descriptor_sets = [_]vk.DescriptorSet{
-                        self.renderer.getDescriptorSet(),
+                        self.renderer.getSceneDescriptorSet(),
                         material.descriptor_set,
                     };
                     context.*.vkd.cmdBindDescriptorSets(command_buffer, .graphics, material.pipeline_layout, 0, descriptor_sets.len, &descriptor_sets, 0, undefined);
@@ -255,10 +249,11 @@ pub const Engine = struct {
                     context.*.vkd.cmdBindIndexBuffer(command_buffer, mesh.index_buffer.buffer, 0, .uint32);
                     context.*.vkd.cmdDrawIndexed(command_buffer, mesh.indices_len, 1, 0, 0, 0);
                 },
-                .none => {},
+                else => {},
             }
         }
-        self.renderer.getUniform().write(std.mem.asBytes(&scene_uniform));
+        self.renderer.getSceneUniform().write(std.mem.asBytes(&scene_uniform));
+        self.renderer.getLightUniform().write(std.mem.asBytes(&light_uniform));
         zgui.backend.newFrame(self.renderer.extent.width, self.renderer.extent.height);
         _ = zgui.DockSpaceOverViewport(0, zgui.getMainViewport(), .{ .passthru_central_node = true });
         var showdemo = true;
@@ -283,6 +278,219 @@ pub const Engine = struct {
             }
         };
         self.last_frame_timestamp = now;
+    }
+
+    pub fn renderShadowMaps(self: *Engine, light_uniform: *SceneLightUniform, command_buffer: vk.CommandBuffer) !void {
+        std.debug.print("Rendering shadow maps for {d} lights...\n", .{light_uniform.light_count});
+        var obstacles: u32 = 0;
+        for (0..light_uniform.light_count) |i| {
+            var light = &light_uniform.lights[i];
+            if (light.has_shadow == 0 or i >= MAX_SHADOW_MAPS) continue;
+            const shadow_map = self.renderer.getShadowMap(@intCast(i));
+            std.debug.print("  Rendering shadow map for light {d} (type: {d})\n", .{ i, light.kind });
+            if (light.kind == 0) { // Point light
+                const light_pos = light.position;
+                const look_dir = zm.f32x4(0.0, -1.0, 0.0, 0.0); // Look down by default
+                const up_dir = zm.f32x4(0.0, 1.0, 0.0, 0.0);
+                const light_view = zm.lookToLh(light_pos, look_dir, up_dir);
+                const fov = std.math.pi / 2.0;
+                const aspect = 1.0;
+                const near = 0.1;
+                const far = light.radius;
+                const light_proj = zm.perspectiveFovLh(fov, aspect, near, far);
+                light.view_proj = zm.mul(light_view, light_proj);
+            } else if (light.kind == 1) {
+                const light_dir = light.direction;
+                const light_pos = light.position;
+                const up_dir = zm.f32x4(0.0, 1.0, 0.0, 0.0);
+                const light_view = zm.lookToLh(light_pos, light_dir, up_dir);
+                const light_proj = zm.orthographicLh(20.0, 20.0, 0.1, light.radius);
+                light.view_proj = zm.mul(light_view, light_proj);
+            } else if (light.kind == 2) {
+                const light_pos = light.position;
+                const light_dir = zm.normalize3(.{0.0, -1.0, -0.5, 0.0});
+                std.debug.print("spot light at {}\n", .{light_pos});
+                const up_dir = zm.f32x4(0.0, 1.0, 0.0, 0.0);
+                const light_view = zm.lookToLh(light_pos, light_dir, up_dir);
+                const fov = light.angle * 2.0;
+                const aspect = 1.0;
+                const near = 0.1;
+                const far = light.radius;
+                const light_proj = zm.perspectiveFovLh(fov, aspect, near, far);
+                light.view_proj = zm.mul(light_view, light_proj);
+            } else {
+                continue;
+            }
+            try context.*.vkd.resetCommandBuffer(command_buffer, .{});
+            try context.*.vkd.beginCommandBuffer(command_buffer, &.{
+                .flags = .{ .one_time_submit_bit = true },
+            });
+
+            // Transition image layout to depth attachment optimal
+            const initial_barrier = vk.ImageMemoryBarrier{
+                .old_layout = .undefined,
+                .new_layout = .depth_stencil_attachment_optimal,
+                .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .image = shadow_map.*.buffer.image,
+                .subresource_range = .{
+                    .aspect_mask = .{ .depth_bit = true },
+                    .base_mip_level = 0,
+                    .level_count = 1,
+                    .base_array_layer = 0,
+                    .layer_count = 1,
+                },
+                .src_access_mask = .{},
+                .dst_access_mask = .{ .depth_stencil_attachment_write_bit = true },
+            };
+
+            context.*.vkd.cmdPipelineBarrier(
+                command_buffer,
+                .{ .top_of_pipe_bit = true },
+                .{ .early_fragment_tests_bit = true },
+                .{},
+                0,
+                null,
+                0,
+                null,
+                1,
+                @ptrCast(&initial_barrier),
+            );
+
+            const depth_attachment = vk.RenderingAttachmentInfoKHR{
+                .image_view = shadow_map.*.buffer.view,
+                .image_layout = .depth_stencil_attachment_optimal,
+                .load_op = .clear,
+                .store_op = .store,
+                .clear_value = .{
+                    .depth_stencil = .{
+                        .depth = 1.0,
+                        .stencil = 0,
+                    },
+                },
+                .resolve_mode = .{},
+                .resolve_image_layout = .undefined,
+            };
+            const render_info = vk.RenderingInfoKHR{
+                .render_area = .{
+                    .offset = .{ .x = 0, .y = 0 },
+                    .extent = .{
+                        .width = shadow_map.*.buffer.width,
+                        .height = shadow_map.*.buffer.height,
+                    },
+                },
+                .layer_count = 1,
+                .view_mask = 0,
+                .p_depth_attachment = @ptrCast(&depth_attachment),
+            };
+            context.*.vkd.cmdBeginRenderingKHR(command_buffer, &render_info);
+            const viewport = vk.Viewport{
+                .x = 0.0,
+                .y = 0.0,
+                .width = @floatFromInt(shadow_map.*.buffer.width),
+                .height = @floatFromInt(shadow_map.*.buffer.height),
+                .min_depth = 0.0,
+                .max_depth = 1.0,
+            };
+            const scissor = vk.Rect2D{
+                .offset = .{ .x = 0, .y = 0 },
+                .extent = .{
+                    .width = shadow_map.*.buffer.width,
+                    .height = shadow_map.*.buffer.height,
+                },
+            };
+            context.*.vkd.cmdSetViewport(command_buffer, 0, 1, @ptrCast(&viewport));
+            context.*.vkd.cmdSetScissor(command_buffer, 0, 1, @ptrCast(&scissor));
+            context.*.vkd.cmdBindPipeline(command_buffer, .graphics, self.renderer.shadow_pass_material.pipeline);
+            context.*.vkd.cmdBindDescriptorSets(
+                command_buffer,
+                .graphics,
+                self.renderer.shadow_pass_material.pipeline_layout,
+                0,
+                1,
+                @ptrCast(&self.renderer.getShadowDescriptorSet()),
+                0,
+                null,
+            );
+            self.renderer.getLightViewProjUniform().write(std.mem.asBytes(&light.view_proj));
+            var node_stack = ArrayList(Handle).init(self.allocator);
+            defer node_stack.deinit();
+            var transform_stack = ArrayList(zm.Mat).init(self.allocator);
+            defer transform_stack.deinit();
+            node_stack.append(self.scene.root) catch return;
+            transform_stack.append(zm.identity()) catch return;
+            // TODO: optimize oppotunity here. maybe don't calculate transform at render time, calculate when user submit object transformations
+            while (node_stack.pop()) |handle| {
+                const node = self.nodes.get(handle) orelse continue;
+                const parent_matrix = transform_stack.pop() orelse zm.identity();
+                const local_matrix = node.transform.toMatrix();
+                const world_matrix = zm.mul(local_matrix, parent_matrix);
+
+                for (node.children.items) |child| {
+                    node_stack.append(child) catch continue;
+                    transform_stack.append(world_matrix) catch continue;
+                }
+                switch (node.data) {
+                    .static_mesh => |mesh_handle| {
+                        const mesh = self.meshes.get(mesh_handle) orelse continue;
+                        context.*.vkd.cmdPushConstants(command_buffer, self.renderer.shadow_pass_material.pipeline_layout, .{ .vertex_bit = true }, 0, @sizeOf(zm.Mat), &world_matrix);
+                        const offset: vk.DeviceSize = 0;
+                        context.*.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&mesh.simple_vertex_buffer.buffer), @ptrCast(&offset));
+                        context.*.vkd.cmdBindIndexBuffer(command_buffer, mesh.index_buffer.buffer, 0, .uint32);
+                        context.*.vkd.cmdDrawIndexed(command_buffer, mesh.indices_len, 1, 0, 0, 0);
+                        obstacles += 1;
+                    },
+                    .skeletal_mesh => |*skeletal_mesh| {
+                        const mesh = self.skeletal_meshes.get(skeletal_mesh.handle) orelse continue;
+                        context.*.vkd.cmdPushConstants(command_buffer, self.renderer.shadow_pass_material.pipeline_layout, .{ .vertex_bit = true }, 0, @sizeOf(zm.Mat), &world_matrix);
+                        const offset: vk.DeviceSize = 0;
+                        context.*.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&mesh.simple_vertex_buffer.buffer), @ptrCast(&offset));
+                        context.*.vkd.cmdBindIndexBuffer(command_buffer, mesh.index_buffer.buffer, 0, .uint32);
+                        context.*.vkd.cmdDrawIndexed(command_buffer, mesh.indices_len, 1, 0, 0, 0);
+                        obstacles += 1;
+                    },
+                    else => {},
+                }
+            }
+            context.*.vkd.cmdEndRenderingKHR(command_buffer);
+            const barrier = vk.ImageMemoryBarrier{
+                .old_layout = .depth_stencil_attachment_optimal,
+                .new_layout = .shader_read_only_optimal,
+                .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .image = shadow_map.buffer.image,
+                .subresource_range = .{
+                    .aspect_mask = .{ .depth_bit = true },
+                    .base_mip_level = 0,
+                    .level_count = 1,
+                    .base_array_layer = 0,
+                    .layer_count = 1,
+                },
+                .src_access_mask = .{ .depth_stencil_attachment_write_bit = true },
+                .dst_access_mask = .{ .shader_read_bit = true },
+            };
+            context.*.vkd.cmdPipelineBarrier(
+                command_buffer,
+                .{ .late_fragment_tests_bit = true },
+                .{ .fragment_shader_bit = true },
+                .{},
+                0,
+                null,
+                0,
+                null,
+                1,
+                @ptrCast(&barrier),
+            );
+            try context.*.vkd.endCommandBuffer(command_buffer);
+            const wait_stage = vk.PipelineStageFlags{ .top_of_pipe_bit = true };
+            const submit_info = vk.SubmitInfo{
+                .p_wait_dst_stage_mask = @ptrCast(&wait_stage),
+                .command_buffer_count = 1,
+                .p_command_buffers = @ptrCast(&command_buffer),
+            };
+            try context.*.vkd.queueSubmit(context.*.graphics_queue, 1, @ptrCast(&submit_info), .null_handle);
+            try context.*.vkd.deviceWaitIdle();
+        }
     }
 
     pub fn recreateSwapchain(self: *Engine) !void {
@@ -328,46 +536,16 @@ pub const Engine = struct {
             }
         }
         self.last_update_timestamp = Instant.now() catch return true;
-        // Camera Controls
-        const move_speed: f32 = 2.0; // Units per second
-        //const rotate_speed: f32 = 1.0; // Radians per second
-        const window = self.window;
-        // Movement
-        if (glfw.getKey(window, glfw.Key.w) == glfw.Action.press) {
-            self.scene.camera.position[2] += move_speed * delta_time;
-        }
-        if (glfw.getKey(window, glfw.Key.s) == glfw.Action.press) {
-            self.scene.camera.position[2] -= move_speed * delta_time;
-        }
-        if (glfw.getKey(window, glfw.Key.a) == glfw.Action.press) {
-            self.scene.camera.position[0] -= move_speed * delta_time;
-        }
-        if (glfw.getKey(window, glfw.Key.d) == glfw.Action.press) {
-            self.scene.camera.position[0] += move_speed * delta_time;
-        }
-        if (glfw.getKey(window, glfw.Key.z) == glfw.Action.press) {
-            self.scene.camera.position[1] -= move_speed * delta_time;
-        }
-        if (glfw.getKey(window, glfw.Key.x) == glfw.Action.press) {
-            self.scene.camera.position[1] += move_speed * delta_time;
-        }
-        // Rotation
-        // if (glfw.getKey(window, glfw.Key.left) == glfw.Action.press) {
-        //     self.scene.camera.rotation = zm.qmul(self.scene.camera.rotation, zm.quatFromAxisAngle(self.scene.camera.up, -std.math.pi*rotate_speed*delta_time));
-        // }
-        // if (glfw.getKey(window, glfw.Key.right) == glfw.Action.press) {
-        //     self.scene.camera.rotation = zm.qmul(self.scene.camera.rotation, zm.quatFromAxisAngle(self.scene.camera.up, std.math.pi*rotate_speed*delta_time));
-        // }
-        // if (glfw.getKey(window, glfw.Key.up) == glfw.Action.press) {
-        //     self.scene.camera.rotation = zm.qmul(self.scene.camera.rotation, zm.quatFromAxisAngle(self.scene.camera.right(), -std.math.pi*rotate_speed*delta_time));
-        // }
-        // if (glfw.getKey(window, glfw.Key.down) == glfw.Action.press) {
-        //     self.scene.camera.rotation = zm.qmul(self.scene.camera.rotation, zm.quatFromAxisAngle(self.scene.camera.right(), std.math.pi*rotate_speed*delta_time));
-        // }
         return true;
     }
 
     pub fn deinit(self: *Engine) !void {
+        // Clean up shadow map texture if it exists
+        if (self.shadow_map_texture_id != 0) {
+            zgui.backend.removeTexture(self.shadow_map_texture_id);
+            self.shadow_map_texture_id = 0;
+        }
+
         try context.*.vkd.deviceWaitIdle();
         for (self.nodes.entries.items) |*entry| {
             if (entry.active) {

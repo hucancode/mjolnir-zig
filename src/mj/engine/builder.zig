@@ -182,7 +182,7 @@ pub const MeshBuilder = struct {
 
     pub fn withGeometry(self: *MeshBuilder, geometry: Geometry) *MeshBuilder {
         const mesh = self.engine.meshes.get(self.handle).?;
-        mesh.init(geometry) catch unreachable;
+        mesh.init(geometry, self.engine.allocator) catch unreachable;
         return self;
     }
 
@@ -209,7 +209,7 @@ pub const SkeletalMeshBuilder = struct {
 
     pub fn withGeometry(self: *SkeletalMeshBuilder, geometry: SkinnedGeometry) *SkeletalMeshBuilder {
         const mesh = self.engine.skeletal_meshes.get(self.handle).?;
-        mesh.init(geometry) catch unreachable;
+        mesh.init(geometry, self.engine.allocator) catch unreachable;
         return self;
     }
 
@@ -278,6 +278,7 @@ pub const NodeBuilder = struct {
         const light_ptr = self.engine.lights.get(handle).?;
         light_ptr.data = .point;
         light_ptr.color = color;
+        light_ptr.radius = 10.0;
         return self.withLight(handle);
     }
 
@@ -286,6 +287,7 @@ pub const NodeBuilder = struct {
         const light_ptr = self.engine.lights.get(handle).?;
         light_ptr.data = .directional;
         light_ptr.color = color;
+        light_ptr.radius = 50.0; // Directional lights use this for the orthographic projection range
         return self.withLight(handle);
     }
 
@@ -296,6 +298,7 @@ pub const NodeBuilder = struct {
             .spot = std.math.pi / 4.0,
         };
         light_ptr.color = color;
+        light_ptr.radius = 15.0;
         std.debug.print("create new spot light\n", .{});
         return self.withLight(handle);
     }
@@ -303,8 +306,18 @@ pub const NodeBuilder = struct {
     pub fn withLightRadius(self: *NodeBuilder, radius: f32) *NodeBuilder {
         if (self.engine.nodes.get(self.handle)) |node| {
             if (node.data == .light) {
-                // TODO: set radius for this light
-                _ = radius;
+                const light = self.engine.lights.get(node.data.light) orelse return self;
+                light.radius = radius;
+            }
+        }
+        return self;
+    }
+
+    pub fn withCastShadow(self: *NodeBuilder, cast_shadow: bool) *NodeBuilder {
+        if (self.engine.nodes.get(self.handle)) |node| {
+            if (node.data == .light) {
+                const light = self.engine.lights.get(node.data.light) orelse return self;
+                light.cast_shadow = cast_shadow;
             }
         }
         return self;

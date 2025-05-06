@@ -209,7 +209,6 @@ pub const Material = struct {
             .rasterization_samples = .{ .@"1_bit" = true },
             .sample_shading_enable = vk.FALSE,
             .min_sample_shading = 1.0,
-            .p_sample_mask = null,
             .alpha_to_coverage_enable = vk.FALSE,
             .alpha_to_one_enable = vk.FALSE,
         };
@@ -242,7 +241,7 @@ pub const Material = struct {
 
         // Create descriptor set layouts
         const set_layouts = [_]vk.DescriptorSetLayout{
-            engine.scene.descriptor_set_layout,
+            engine.renderer.main_pass_descriptor_set_layout,
             self.descriptor_set_layout,
         };
 
@@ -305,10 +304,8 @@ pub const Material = struct {
         };
 
         // Create pipeline
-        var pipeline: vk.Pipeline = undefined;
-        _ = try context.*.vkd.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_info), null, @ptrCast(&pipeline));
+        _ = try context.*.vkd.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_info), null, @ptrCast(&self.pipeline));
 
-        self.pipeline = pipeline;
         std.debug.print("Material pipeline created\n", .{});
     }
 

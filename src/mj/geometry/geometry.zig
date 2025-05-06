@@ -1,3 +1,4 @@
+const std = @import("std");
 const vk = @import("vulkan");
 
 pub const Vertex = struct {
@@ -57,6 +58,17 @@ const VEC_RIGHT = [3]f32{ 1.0, 0.0, 0.0 };
 pub const Geometry = struct {
     vertices: []const Vertex,
     indices: []const u32,
+
+    pub fn extractPositions(self: *const Geometry, allocator: std.mem.Allocator) []const [4]f32 {
+        var positions = allocator.alloc([4]f32, self.vertices.len) catch unreachable;
+        for (0..self.vertices.len) |i| {
+            positions[i][0] = self.vertices[i].position[0];
+            positions[i][1] = self.vertices[i].position[1];
+            positions[i][2] = self.vertices[i].position[2];
+            positions[i][3] = 1.0;
+        }
+        return positions;
+    }
 
     pub fn make(vertices: []const Vertex, indices: []const u32) Geometry {
         return .{
@@ -247,6 +259,17 @@ pub const SKINNED_VERTEX_ATTR_DESCRIPTION = [_]vk.VertexInputAttributeDescriptio
 pub const SkinnedGeometry = struct {
     vertices: []const SkinnedVertex,
     indices: []const u32,
+
+    pub fn extractPositions(self: *const SkinnedGeometry, allocator: std.mem.Allocator) []const [4]f32 {
+        var positions = allocator.alloc([4]f32, self.vertices.len) catch unreachable;
+        for (0..self.vertices.len) |i| {
+            positions[i][0] = self.vertices[i].position[0];
+            positions[i][1] = self.vertices[i].position[1];
+            positions[i][2] = self.vertices[i].position[2];
+            positions[i][3] = 1.0;
+        }
+        return positions;
+    }
 
     pub fn make(vertices: []const SkinnedVertex, indices: []const u32) SkinnedGeometry {
         return .{
