@@ -40,10 +40,10 @@ const NodeBuilder = @import("builder.zig").NodeBuilder;
 const GLTFLoader = @import("../loader/gltf.zig").GLTFLoader;
 const ImGui = @import("gui.zig").ImGui;
 
-const RENDER_FPS = 10.0;
+const RENDER_FPS = 60.0;
 const FRAME_TIME = 1.0 / RENDER_FPS;
 const FRAME_TIME_NANO: u64 = @intFromFloat(FRAME_TIME * 1_000_000_000.0);
-const UPDATE_FPS = 10.0;
+const UPDATE_FPS = 60.0;
 const UPDATE_FRAME_TIME = 1.0 / UPDATE_FPS;
 const UPDATE_FRAME_TIME_NANO: u64 = @intFromFloat(UPDATE_FRAME_TIME * 1_000_000_000.0);
 
@@ -309,7 +309,6 @@ pub const Engine = struct {
             } else if (light.kind == 2) {
                 const light_pos = light.position;
                 const light_dir = zm.normalize3(.{0.0, -1.0, -0.5, 0.0});
-                std.debug.print("spot light at {}\n", .{light_pos});
                 const up_dir = zm.f32x4(0.0, 1.0, 0.0, 0.0);
                 const light_view = zm.lookToLh(light_pos, light_dir, up_dir);
                 const fov = light.angle * 2.0;

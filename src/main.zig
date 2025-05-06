@@ -14,7 +14,7 @@ const TITLE = "Hello Mjolnir!";
 // disable safety to avoid excessive logs, enable it later to fix memory leaks
 var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = false }){};
 const allocator = gpa.allocator();
-const LIGHT_COUNT = 1;
+const LIGHT_COUNT = 5;
 var light: [LIGHT_COUNT]Handle = undefined;
 var light_cube: [LIGHT_COUNT]Handle = undefined;
 var e: mj.Engine = undefined;
@@ -172,7 +172,7 @@ fn update() void {
         const rz = std.math.cos(t);
         const v = zm.normalize3(zm.f32x4(rx, ry, rz, 0.0));
         const radius = 4.0;
-        light_ptr.transform.position = zm.f32x4(v[0] * radius, 3.0 + v[1] * radius, v[2] * radius, 0.0);
+        light_ptr.transform.position = zm.f32x4(v[0] * radius, 2.0 + v[1] * radius, v[2] * radius, 0.0);
         const light_cube_ptr = e.nodes.get(light_cube[i]).?;
         light_cube_ptr.transform.rotation = zm.quatFromNormAxisAngle(.{ v[0], v[1], v[2], 0.0 }, std.math.pi * e.getTime() * 0.5);
     }
