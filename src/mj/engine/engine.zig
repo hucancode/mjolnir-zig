@@ -66,10 +66,6 @@ pub const Engine = struct {
     nodes: ResourcePool(Node),
     allocator: Allocator,
 
-    // Debug
-    debug_shadow_map_idx: u16 = 0,
-    shadow_map_texture_id: u64 = 0,
-
     pub fn beginTransaction(self: *Engine) void {
         self.in_transaction = true;
     }
@@ -281,13 +277,13 @@ pub const Engine = struct {
     }
 
     pub fn renderShadowMaps(self: *Engine, light_uniform: *SceneLightUniform, command_buffer: vk.CommandBuffer) !void {
-        std.debug.print("Rendering shadow maps for {d} lights...\n", .{light_uniform.light_count});
+        // std.debug.print("Rendering shadow maps for {d} lights...\n", .{light_uniform.light_count});
         var obstacles: u32 = 0;
         for (0..light_uniform.light_count) |i| {
             var light = &light_uniform.lights[i];
             if (light.has_shadow == 0 or i >= MAX_SHADOW_MAPS) continue;
             const shadow_map = self.renderer.getShadowMap(@intCast(i));
-            std.debug.print("  Rendering shadow map for light {d} (type: {d})\n", .{ i, light.kind });
+            // std.debug.print("  Rendering shadow map for light {d} (type: {d})\n", .{ i, light.kind });
             if (light.kind == 0) { // Point light
                 const light_pos = light.position;
                 const look_dir = zm.f32x4(0.0, -1.0, 0.0, 0.0); // Look down by default
@@ -539,12 +535,6 @@ pub const Engine = struct {
     }
 
     pub fn deinit(self: *Engine) !void {
-        // Clean up shadow map texture if it exists
-        if (self.shadow_map_texture_id != 0) {
-            zgui.backend.removeTexture(self.shadow_map_texture_id);
-            self.shadow_map_texture_id = 0;
-        }
-
         try context.*.vkd.deviceWaitIdle();
         for (self.nodes.entries.items) |*entry| {
             if (entry.active) {
