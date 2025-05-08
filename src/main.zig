@@ -74,9 +74,6 @@ fn setup() !void {
         .withScale(.{ 20.0, 20.0, 20.0, 0.0 })
         .build();
 
-    // Set up orbit camera
-    e.scene.setCameraMode(.orbit);
-    e.scene.orbit_camera.setTarget(.{ 0.0, 0.0, 0.0, 0.0 });
     const gltf_nodes = try e.loadGltf()
         .withPath("assets/CesiumMan.glb")
         .submit();
@@ -142,7 +139,7 @@ fn setup() !void {
 }
 
 fn update() void {
-    if (e.scene.camera_mode == .orbit) {
+    if (e.scene.camera.mode == .orbit) { // Changed: check mode on the camera object
         // Handle camera rotation with right mouse button
         const mouse_state = e.window.getCursorPos();
         const mouse_button_state = e.window.getMouseButton(.left);
