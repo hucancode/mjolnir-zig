@@ -51,12 +51,21 @@ fn setup() !void {
         // .withColor(.{ 0.5, 0.5, 0.5, 1.0 })
         .build();
 
-    _ = e.spawn()
-        .atRoot()
-        .withNewStaticMesh(Geometry.cube(.{ 1.0, 1.0, 1.0, 1.0 }), material)
-        .withPosition(.{ 0.0, 2.0, 1.0, 0.0 })
-        .withScale(.{0.1, 0.1, 0.1, 1.0})
-        .build();
+    const nx = 10;
+    const ny = 10;
+    const nz = 10;
+    for (0..nx) |x| {
+        for (0..ny) |y| {
+            for (0..nz) |z| {
+                _ = e.spawn()
+                    .atRoot()
+                    .withStaticMesh(mesh)
+                    .withPosition(.{ (@as(f32, @floatFromInt(@as(i32, @intCast(x)) - nx / 2))) * 3.0, (@as(f32, @floatFromInt(@as(i32, @intCast(y)) - ny / 2))) * 3.0, (@as(f32, @floatFromInt(@as(i32, @intCast(z)) - nz / 2))) * 3.0, 0.0 })
+                    .withScale(.{ 0.3, 0.3, 0.3, 1.0 })
+                    .build();
+            }
+        }
+    }
 
     _ = e.spawn()
         .atRoot()
@@ -75,7 +84,7 @@ fn setup() !void {
         const armature_ptr = e.nodes.get(armature) orelse continue;
         const skeleton = armature_ptr.children.getLastOrNull() orelse continue;
         const skeleton_ptr = e.nodes.get(skeleton) orelse continue;
-        skeleton_ptr.transform.position = .{ 0.0, 0.0, 0.0, 0.0 };
+        skeleton_ptr.transform.position = .{ 2.0, 0.0, 0.0, 0.0 };
         const name = "Anim_0";
         e.playAnimation(skeleton, name, .loop) catch continue;
     }
@@ -115,12 +124,12 @@ fn setup() !void {
     }
 
     // Add a directional light with shadow for overall illumination
-    // _ = e.spawn()
-    //     .atRoot()
-    //     .withNewDirectionalLight(.{ 0.3, 0.3, 0.3, 0.0 })
-    //     .withPosition(.{ 0.0, 10.0, 5.0, 0.0 })
-    //     .withCastShadow(true)
-    //     .build();
+    _ = e.spawn()
+        .atRoot()
+        .withNewDirectionalLight(.{ 0.3, 0.3, 0.3, 0.0 })
+        .withPosition(.{ 0.0, 10.0, 5.0, 0.0 })
+        .withCastShadow(true)
+        .build();
     const ScrollHandler = struct {
         fn scroll_callback(window: *glfw.Window, xoffset: f64, yoffset: f64) callconv(.C) void {
             _ = window;

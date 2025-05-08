@@ -5,6 +5,7 @@ const context = @import("../engine/context.zig").get();
 const Camera = @import("camera.zig").Camera;
 const OrbitCamera = @import("orbit_camera.zig").OrbitCamera;
 const Handle = @import("../engine/resource.zig").Handle;
+const Frustum = @import("frustum.zig").Frustum;
 
 pub const CameraMode = enum {
     free,
@@ -69,5 +70,12 @@ pub const Scene = struct {
 
     pub fn setCameraMode(self: *Scene, mode: CameraMode) void {
         self.camera_mode = mode;
+    }
+
+    pub fn getCameraFrustum(self: *const Scene, do_normalize_planes: bool) Frustum {
+        if (self.camera_mode == .orbit) {
+            return self.orbit_camera.getFrustum(do_normalize_planes);
+        }
+        return self.camera.getFrustum(do_normalize_planes);
     }
 };

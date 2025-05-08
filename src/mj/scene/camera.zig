@@ -1,5 +1,6 @@
 const std = @import("std");
 const zm = @import("zmath");
+const Frustum = @import("frustum.zig").Frustum;
 
 pub const Camera = struct {
     up: zm.Vec = .{ 0.0, 1.0, 0.0, 0.0 },
@@ -49,5 +50,14 @@ pub const Camera = struct {
     pub fn getForwardVector(self: *const Camera) zm.Vec {
         const rotmat = zm.matFromQuat(self.rotation);
         return .{ rotmat[2][0], rotmat[2][1], rotmat[2][2], 0.0 };
+    }
+
+    pub fn getFrustum(self: *const Camera, do_normalize_planes: bool) Frustum {
+        const view_proj = zm.mul(
+            self.calculateViewMatrix(),
+            self.calculateProjectionMatrix(),
+        );
+        // Assuming Vulkan/Direct3D style projection (Z in [0, 1]) as per perspectiveFovLh
+        return Frustum.extractPlanes(view_proj, do_normalize_planes);
     }
 };

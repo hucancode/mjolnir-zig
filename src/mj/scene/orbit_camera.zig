@@ -1,6 +1,7 @@
 const std = @import("std");
 const zm = @import("zmath");
 const Camera = @import("camera.zig").Camera;
+const Frustum = @import("frustum.zig").Frustum;
 
 pub const OrbitCamera = struct {
     camera: Camera,
@@ -71,5 +72,9 @@ pub const OrbitCamera = struct {
 
     pub fn getProjectionMatrix(self: *const OrbitCamera) zm.Mat {
         return self.camera.calculateProjectionMatrix();
+    }
+
+    pub fn getFrustum(self: *const OrbitCamera, do_normalize_planes: bool) Frustum {
+        return self.camera.getFrustum(do_normalize_planes);
     }
 };

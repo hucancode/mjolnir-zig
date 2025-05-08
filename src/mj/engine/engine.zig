@@ -14,6 +14,10 @@ const PlayMode = @import("../geometry/animation.zig").PlayMode;
 const SkeletalMesh = @import("../geometry/skeletal_mesh.zig").SkeletalMesh;
 const StaticMesh = @import("../geometry/static_mesh.zig").StaticMesh;
 const Material = @import("../material/pbr.zig").Material;
+const Aabb = @import("../geometry/geometry.zig").Aabb; // Added
+const Frustum = @import("../scene/frustum.zig").Frustum; // Added
+const testAabbFrustum = @import("../scene/frustum.zig").testAabbFrustum; // Added
+const transformAabb = @import("../scene/frustum.zig").transformAabb; // Added
 const SkinnedMaterial = @import("../material/skinned_pbr.zig").SkinnedMaterial;
 const Texture = @import("../material/texture.zig").Texture;
 const createDepthImage = @import("../material/texture.zig").createDepthImage;
@@ -152,6 +156,10 @@ pub const Engine = struct {
         };
         var light_uniform = SceneLightUniform{};
         scene_uniform.time = @floatCast(elapsed_seconds);
+
+        // Calculate camera frustum
+        const camera_frustum = self.scene.getCameraFrustum(true);
+
         var node_stack = ArrayList(Handle).init(self.allocator);
         defer node_stack.deinit();
         var transform_stack = ArrayList(zm.Mat).init(self.allocator);
@@ -204,6 +212,8 @@ pub const Engine = struct {
 
         // TODO: optimize oppotunity here. maybe don't calculate transform at render time, calculate when user submit object transformations
 
+        var rendered: u32 = 0;
+
         while (node_stack.pop()) |handle| {
             const node = self.nodes.get(handle) orelse continue;
             const parent_matrix = transform_stack.pop() orelse zm.identity();
@@ -217,6 +227,13 @@ pub const Engine = struct {
                 .skeletal_mesh => |*skeletal_mesh| {
                     const mesh = self.skeletal_meshes.get(skeletal_mesh.handle) orelse continue;
                     const material = self.skinned_materials.get(mesh.material) orelse continue;
+
+                    // Frustum Culling
+                    const world_aabb = transformAabb(mesh.aabb, world_matrix);
+                    if (!testAabbFrustum(world_aabb.min, world_aabb.max, camera_frustum)) {
+                        continue;
+                    }
+
                     const descriptor_sets = [_]vk.DescriptorSet{
                         self.renderer.getSceneDescriptorSet(),
                         material.descriptor_set,
@@ -229,10 +246,18 @@ pub const Engine = struct {
                     context.*.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&mesh.vertex_buffer.buffer), @ptrCast(&offset));
                     context.*.vkd.cmdBindIndexBuffer(command_buffer, mesh.index_buffer.buffer, 0, .uint32);
                     context.*.vkd.cmdDrawIndexed(command_buffer, mesh.indices_len, 1, 0, 0, 0);
+                    rendered += 1;
                 },
                 .static_mesh => |mesh_handle| {
                     const mesh = self.meshes.get(mesh_handle) orelse continue;
                     const material = self.materials.get(mesh.material) orelse continue;
+
+                    // Frustum Culling
+                    const world_aabb = transformAabb(mesh.aabb, world_matrix);
+                    if (!testAabbFrustum(world_aabb.min, world_aabb.max, camera_frustum)) {
+                        continue;
+                    }
+
                     context.*.vkd.cmdBindPipeline(command_buffer, .graphics, material.pipeline);
                     const descriptor_sets = [_]vk.DescriptorSet{
                         self.renderer.getSceneDescriptorSet(),
@@ -244,6 +269,7 @@ pub const Engine = struct {
                     context.*.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&mesh.vertex_buffer.buffer), @ptrCast(&offset));
                     context.*.vkd.cmdBindIndexBuffer(command_buffer, mesh.index_buffer.buffer, 0, .uint32);
                     context.*.vkd.cmdDrawIndexed(command_buffer, mesh.indices_len, 1, 0, 0, 0);
+                    rendered += 1;
                 },
                 else => {},
             }
@@ -254,6 +280,9 @@ pub const Engine = struct {
         _ = zgui.DockSpaceOverViewport(0, zgui.getMainViewport(), .{ .passthru_central_node = true });
         var showdemo = true;
         zgui.showDemoWindow(&showdemo);
+        _ = zgui.begin("Scene", .{});
+        zgui.text("Rendered {d} objects", .{rendered});
+        zgui.end();
         zgui.backend.render(@intFromEnum(command_buffer));
         try self.renderer.end(image_idx);
     }
@@ -304,7 +333,7 @@ pub const Engine = struct {
                 light.view_proj = zm.mul(light_view, light_proj);
             } else if (light.kind == 2) {
                 const light_pos = light.position;
-                const light_dir = zm.normalize3(.{0.0, -1.0, -0.5, 0.0});
+                const light_dir = zm.normalize3(.{ 0.0, -1.0, -0.5, 0.0 });
                 const up_dir = zm.f32x4(0.0, 1.0, 0.0, 0.0);
                 const light_view = zm.lookToLh(light_pos, light_dir, up_dir);
                 const fov = light.angle * 2.0;

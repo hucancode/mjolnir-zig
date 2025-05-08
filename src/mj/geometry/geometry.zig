@@ -1,5 +1,6 @@
 const std = @import("std");
 const vk = @import("vulkan");
+const zm = @import("zmath"); // Added zmath import
 
 pub const Vertex = struct {
     position: [3]f32,
@@ -55,9 +56,46 @@ const VEC_DOWN = [3]f32{ 0.0, -1.0, 0.0 };
 const VEC_LEFT = [3]f32{ -1.0, 0.0, 0.0 };
 const VEC_RIGHT = [3]f32{ 1.0, 0.0, 0.0 };
 
+pub const Aabb = struct {
+    min: zm.Vec = zm.f32x4s(std.math.floatMax(f32)),
+    max: zm.Vec = zm.f32x4s(std.math.floatMin(f32)),
+
+    pub fn fromVertices(vertices: []const Vertex) Aabb {
+        var bounds: Aabb = .{};
+        if (vertices.len == 0) {
+            // Return a zero-sized AABB at origin or some default if no vertices
+            bounds.min = zm.f32x4(0, 0, 0, 1);
+            bounds.max = zm.f32x4(0, 0, 0, 1);
+            return bounds;
+        }
+
+        for (vertices) |vertex| {
+            bounds.min = zm.min(bounds.min, zm.f32x4(vertex.position[0], vertex.position[1], vertex.position[2], 1.0));
+            bounds.max = zm.max(bounds.max, zm.f32x4(vertex.position[0], vertex.position[1], vertex.position[2], 1.0));
+        }
+        return bounds;
+    }
+
+    pub fn fromSkinnedVertices(vertices: []const SkinnedVertex) Aabb {
+        var bounds: Aabb = .{};
+        if (vertices.len == 0) {
+            bounds.min = zm.f32x4(0, 0, 0, 1);
+            bounds.max = zm.f32x4(0, 0, 0, 1);
+            return bounds;
+        }
+
+        for (vertices) |vertex| {
+            bounds.min = zm.min(bounds.min, zm.f32x4(vertex.position[0], vertex.position[1], vertex.position[2], 1.0));
+            bounds.max = zm.max(bounds.max, zm.f32x4(vertex.position[0], vertex.position[1], vertex.position[2], 1.0));
+        }
+        return bounds;
+    }
+};
+
 pub const Geometry = struct {
     vertices: []const Vertex,
     indices: []const u32,
+    aabb: Aabb = .{},
 
     pub fn extractPositions(self: *const Geometry, allocator: std.mem.Allocator) []const [4]f32 {
         var positions = allocator.alloc([4]f32, self.vertices.len) catch unreachable;
@@ -74,6 +112,7 @@ pub const Geometry = struct {
         return .{
             .vertices = vertices,
             .indices = indices,
+            .aabb = Aabb.fromVertices(vertices),
         };
     }
 
@@ -145,6 +184,10 @@ pub const Geometry = struct {
         return .{
             .vertices = &vertices,
             .indices = &indices,
+            .aabb = Aabb{
+                .min = zm.f32x4(-1.0, -1.0, -1.0, 1.0),
+                .max = zm.f32x4(1.0, 1.0, 1.0, 1.0),
+            },
         };
     }
 
@@ -160,6 +203,7 @@ pub const Geometry = struct {
         return .{
             .vertices = &vertices,
             .indices = &indices,
+            .aabb = Aabb.fromVertices(&vertices),
         };
     }
 
@@ -176,6 +220,10 @@ pub const Geometry = struct {
         return .{
             .vertices = &vertices,
             .indices = &indices,
+            .aabb = Aabb{
+                .min = zm.f32x4(0.0, -0.0001, 0.0, 1.0),
+                .max = zm.f32x4(1.0, 0.0001, 1.0, 1.0),
+            },
         };
     }
 
@@ -188,6 +236,7 @@ pub const Geometry = struct {
         return .{
             .vertices = &vertices,
             .indices = &indices,
+            .aabb = Aabb.fromVertices(&vertices), // Will be empty if sphere is not implemented
         };
     }
 };
@@ -259,6 +308,7 @@ pub const SKINNED_VERTEX_ATTR_DESCRIPTION = [_]vk.VertexInputAttributeDescriptio
 pub const SkinnedGeometry = struct {
     vertices: []const SkinnedVertex,
     indices: []const u32,
+    aabb: Aabb = .{},
 
     pub fn extractPositions(self: *const SkinnedGeometry, allocator: std.mem.Allocator) []const [4]f32 {
         var positions = allocator.alloc([4]f32, self.vertices.len) catch unreachable;
@@ -275,6 +325,7 @@ pub const SkinnedGeometry = struct {
         return .{
             .vertices = vertices,
             .indices = indices,
+            .aabb = Aabb.fromSkinnedVertices(vertices),
         };
     }
 };
