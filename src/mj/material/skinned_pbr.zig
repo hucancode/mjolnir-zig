@@ -238,7 +238,6 @@ pub const SkinnedMaterial = struct {
             .rasterization_samples = .{ .@"1_bit" = true },
             .sample_shading_enable = vk.FALSE,
             .min_sample_shading = 0.0,
-            .p_sample_mask = null,
             .alpha_to_coverage_enable = vk.FALSE,
             .alpha_to_one_enable = vk.FALSE,
         };
@@ -318,7 +317,7 @@ pub const SkinnedMaterial = struct {
 
         // Create descriptor set layouts
         const set_layouts = [_]vk.DescriptorSetLayout{
-            engine.scene.descriptor_set_layout,
+            engine.renderer.main_pass_descriptor_set_layout,
             self.descriptor_set_layout,
         };
 
@@ -359,10 +358,7 @@ pub const SkinnedMaterial = struct {
         };
 
         // Create pipeline
-        var pipeline: vk.Pipeline = undefined;
-        _ = try context.*.vkd.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_info), null, @ptrCast(&pipeline));
-
-        self.pipeline = pipeline;
+        _ = try context.*.vkd.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_info), null, @ptrCast(&self.pipeline));
     }
     pub fn deinit(self: *SkinnedMaterial) void {
         context.*.vkd.destroyPipeline(self.pipeline, null);

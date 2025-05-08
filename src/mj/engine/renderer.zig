@@ -3,33 +3,44 @@ const vk = @import("vulkan");
 const zm = @import("zmath");
 const DataBuffer = @import("data_buffer.zig").DataBuffer;
 const ImageBuffer = @import("data_buffer.zig").ImageBuffer;
+const ShadowMaterial = @import("../material/shadow.zig").ShadowMaterial;
 const createImageView = @import("data_buffer.zig").createImageView;
+const DepthTexture = @import("../material/texture.zig").DepthTexture;
 const context = @import("context.zig").get();
 const MAX_FRAMES_IN_FLIGHT = @import("context.zig").MAX_FRAMES_IN_FLIGHT;
 pub const MAX_LIGHTS = 10;
 
-pub const LightUniform = struct {
+// Shadow map constants
+pub const SHADOW_MAP_SIZE = 512;
+pub const MAX_SHADOW_MAPS = MAX_LIGHTS;
+
+pub const SingleLightUniform = struct {
+    view_proj: zm.Mat = zm.identity(),
     color: zm.Vec = .{ 1.0, 1.0, 1.0, 1.0 },
     position: zm.Vec = .{ 0.0, 0.0, 0.0, 1.0 },
     direction: zm.Vec = .{ 0.0, -1.0, 0.0, 0.0 },
     kind: u32 = 0,
     angle: f32 = 0.2,
     radius: f32 = 10.0,
+    has_shadow: u32 = 0, // 0 = no shadow, 1 = has shadow
 };
 
 pub const SceneUniform = struct {
     view: zm.Mat,
     projection: zm.Mat,
-    lights: [MAX_LIGHTS]LightUniform,
-    light_count: u32 = 0,
     time: f32 = 0.0,
-    pub fn pushLight(self: *SceneUniform, light: LightUniform) void {
+};
+
+pub const SceneLightUniform = struct {
+    lights: [MAX_LIGHTS]SingleLightUniform = undefined,
+    light_count: u32 = 0,
+    pub fn pushLight(self: *SceneLightUniform, light: SingleLightUniform) void {
         if (self.light_count < MAX_LIGHTS) {
             self.lights[self.light_count] = light;
             self.light_count += 1;
         }
     }
-    pub fn clearLights(self: *SceneUniform) void {
+    pub fn clearLights(self: *SceneLightUniform) void {
         self.light_count = 0;
     }
 };
@@ -39,15 +50,117 @@ pub const Frame = struct {
     render_finished_semaphore: vk.Semaphore,
     fence: vk.Fence,
     command_buffer: vk.CommandBuffer,
-    uniform: DataBuffer,
-    descriptor_set: vk.DescriptorSet,
+    scene_uniform: DataBuffer,
+    light_uniform: DataBuffer,
+    shadow_maps: [MAX_SHADOW_MAPS]DepthTexture,
+    main_pass_descriptor_set: vk.DescriptorSet,
+    light_view_proj_uniform: DataBuffer,
+    shadow_pass_descriptor_set: vk.DescriptorSet,
+
+    pub fn init(self: *Frame, main_descriptor_set_layout: vk.DescriptorSetLayout, shadow_pass_descriptor_set_layout: vk.DescriptorSetLayout) !void {
+        self.scene_uniform = try context.*.mallocHostVisibleBuffer(@sizeOf(SceneUniform), .{ .uniform_buffer_bit = true });
+        self.light_uniform = try context.*.mallocHostVisibleBuffer(@sizeOf(SceneLightUniform), .{ .uniform_buffer_bit = true });
+        for (&self.shadow_maps) |*map| {
+            try map.init(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+        }
+        const alloc_info = vk.DescriptorSetAllocateInfo{
+            .descriptor_pool = context.*.descriptor_pool,
+            .descriptor_set_count = 1,
+            .p_set_layouts = @ptrCast(&main_descriptor_set_layout),
+        };
+        try context.*.vkd.allocateDescriptorSets(&alloc_info, @ptrCast(&self.main_pass_descriptor_set));
+        self.light_view_proj_uniform = try context.*.mallocHostVisibleBuffer(@sizeOf(zm.Mat), .{ .uniform_buffer_bit = true });
+
+        const shadow_pass_alloc_info = vk.DescriptorSetAllocateInfo{
+            .descriptor_pool = context.*.descriptor_pool,
+            .descriptor_set_count = 1,
+            .p_set_layouts = @ptrCast(&shadow_pass_descriptor_set_layout),
+        };
+        try context.*.vkd.allocateDescriptorSets(&shadow_pass_alloc_info , @ptrCast(&self.shadow_pass_descriptor_set));
+        std.debug.print("Created descriptor set\n", .{});
+        var shadow_map_infos: [MAX_SHADOW_MAPS]vk.DescriptorImageInfo = undefined;
+        for (0..MAX_SHADOW_MAPS) |i| {
+            shadow_map_infos[i] = .{
+                .sampler = self.shadow_maps[i].sampler,
+                .image_view = self.shadow_maps[i].buffer.view,
+                .image_layout = .shader_read_only_optimal,
+            };
+        }
+        const scene_buffer_info = [_]vk.DescriptorBufferInfo {
+            .{
+                .buffer = self.scene_uniform.buffer,
+                .offset = 0,
+                .range = @sizeOf(SceneUniform),
+            },
+        };
+        const light_buffer_info = [_]vk.DescriptorBufferInfo {
+            .{
+                .buffer = self.light_uniform.buffer,
+                .offset = 0,
+                .range = @sizeOf(SceneLightUniform),
+            },
+        };
+        const writes = [_]vk.WriteDescriptorSet {
+            .{
+                .dst_set = self.main_pass_descriptor_set,
+                .dst_binding = 0,
+                .dst_array_element = 0,
+                .descriptor_type = .uniform_buffer,
+                .descriptor_count = scene_buffer_info.len,
+                .p_buffer_info = &scene_buffer_info,
+                .p_image_info = undefined,
+                .p_texel_buffer_view = undefined,
+            },
+            .{
+                .dst_set = self.main_pass_descriptor_set,
+                .dst_binding = 1,
+                .dst_array_element = 0,
+                .descriptor_type = .uniform_buffer,
+                .descriptor_count = light_buffer_info.len,
+                .p_buffer_info = &light_buffer_info,
+                .p_image_info = undefined,
+                .p_texel_buffer_view = undefined,
+            },
+            .{
+                .dst_set = self.main_pass_descriptor_set,
+                .dst_binding = 2,
+                .dst_array_element = 0,
+                .descriptor_type = .combined_image_sampler,
+                .descriptor_count = shadow_map_infos.len,
+                .p_image_info = &shadow_map_infos,
+                .p_buffer_info = undefined,
+                .p_texel_buffer_view = undefined,
+            }
+        };
+        context.*.vkd.updateDescriptorSets(writes.len, &writes, 0, null);
+        const light_view_proj_buffer_info = [_]vk.DescriptorBufferInfo {
+            .{
+                .buffer = self.light_view_proj_uniform.buffer,
+                .offset = 0,
+                .range = @sizeOf(zm.Mat),
+            },
+        };
+        const shadow_pass_writes = [_]vk.WriteDescriptorSet {
+            .{
+                .dst_set = self.shadow_pass_descriptor_set,
+                .dst_binding = 0,
+                .dst_array_element = 0,
+                .descriptor_type = .uniform_buffer,
+                .descriptor_count = light_view_proj_buffer_info .len,
+                .p_buffer_info = &light_view_proj_buffer_info ,
+                .p_image_info = undefined,
+                .p_texel_buffer_view = undefined,
+            },
+        };
+        context.*.vkd.updateDescriptorSets(shadow_pass_writes .len, &shadow_pass_writes , 0, null);
+    }
 
     pub fn deinit(self: *Frame) void {
         context.*.vkd.destroySemaphore(self.image_available_semaphore, null);
         context.*.vkd.destroySemaphore(self.render_finished_semaphore, null);
         context.*.vkd.destroyFence(self.fence, null);
         context.*.vkd.freeCommandBuffers(context.*.command_pool, 1, @ptrCast(&self.command_buffer));
-        self.uniform.deinit();
+        self.scene_uniform.deinit();
     }
 };
 
@@ -57,25 +170,61 @@ pub const Renderer = struct {
     extent: vk.Extent2D,
     images: []vk.Image,
     views: []vk.ImageView,
-    mutable_uniform_layout: vk.DescriptorSetLayout,
     frames: [MAX_FRAMES_IN_FLIGHT]Frame,
+    main_pass_descriptor_set_layout: vk.DescriptorSetLayout,
+    shadow_pass_descriptor_set_layout: vk.DescriptorSetLayout,
     depth_buffer: ImageBuffer,
-    current_frame: u32,
+    current_frame: u32 = 0,
     allocator: std.mem.Allocator,
+    shadow_pass_material: ShadowMaterial,
 
-    pub fn init(allocator: std.mem.Allocator) Renderer {
-        return .{
-            .swapchain = .null_handle,
-            .format = undefined,
-            .extent = undefined,
-            .images = &[_]vk.Image{},
-            .views = &[_]vk.ImageView{},
-            .mutable_uniform_layout = .null_handle,
-            .frames = undefined,
-            .depth_buffer = undefined,
-            .current_frame = 0,
-            .allocator = allocator,
+    pub fn init(self: *Renderer, allocator: std.mem.Allocator) !void {
+        self.allocator = allocator;
+        const view_proj_time_binding = vk.DescriptorSetLayoutBinding{
+            .binding = 0,
+            .descriptor_type = .uniform_buffer,
+            .descriptor_count = 1,
+            .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
         };
+        const light_binding = vk.DescriptorSetLayoutBinding{
+            .binding = 1,
+            .descriptor_type = .uniform_buffer,
+            .descriptor_count = 1,
+            .stage_flags = .{ .fragment_bit = true },
+        };
+        const shadow_sampler_binding = vk.DescriptorSetLayoutBinding{
+            .binding = 2,
+            .descriptor_type = .combined_image_sampler,
+            .descriptor_count = MAX_SHADOW_MAPS,
+            .stage_flags = .{ .fragment_bit = true },
+        };
+        const bindings = [_]vk.DescriptorSetLayoutBinding{
+            view_proj_time_binding,
+            light_binding,
+            shadow_sampler_binding,
+        };
+        const layout_info = vk.DescriptorSetLayoutCreateInfo{
+            .binding_count = bindings.len,
+            .p_bindings = &bindings,
+        };
+        self.main_pass_descriptor_set_layout = try context.*.vkd.createDescriptorSetLayout(&layout_info, null);
+        const shadow_pass_bindings = [_]vk.DescriptorSetLayoutBinding{
+            .{
+                .binding = 0, // light view projection matrix
+                .descriptor_type = .uniform_buffer,
+                .descriptor_count = 1,
+                .stage_flags = .{ .vertex_bit = true },
+            },
+        };
+        const shadow_pass_layout_info = vk.DescriptorSetLayoutCreateInfo{
+            .binding_count = shadow_pass_bindings.len,
+            .p_bindings = &shadow_pass_bindings,
+        };
+        self.shadow_pass_descriptor_set_layout = try context.*.vkd.createDescriptorSetLayout(&shadow_pass_layout_info , null);
+        for (&self.frames) |*frame| {
+            try frame.init(self.main_pass_descriptor_set_layout, self.shadow_pass_descriptor_set_layout);
+        }
+        try self.shadow_pass_material.build(self);
     }
 
     pub fn buildCommandBuffers(self: *Renderer) !void {
@@ -88,7 +237,6 @@ pub const Renderer = struct {
             try context.*.vkd.allocateCommandBuffers(&alloc_info, @ptrCast(&frame.command_buffer));
         }
     }
-
     pub fn buildSynchronizers(self: *Renderer) !void {
         const semaphore_info = vk.SemaphoreCreateInfo{};
 
@@ -178,43 +326,52 @@ pub const Renderer = struct {
         return self.frames[self.current_frame].command_buffer;
     }
 
-    pub fn getUniform(self: *Renderer) *DataBuffer {
-        return &self.frames[self.current_frame].uniform;
+    // main pass camera view proj uniform
+    pub fn getSceneUniform(self: *Renderer) *DataBuffer {
+        return &self.frames[self.current_frame].scene_uniform;
     }
 
-    pub fn getDescriptorSet(self: *Renderer) vk.DescriptorSet {
-        return self.frames[self.current_frame].descriptor_set;
+    // main pass light data uniform
+    pub fn getLightUniform(self: *Renderer) *DataBuffer {
+        return &self.frames[self.current_frame].light_uniform;
     }
+
+    // shadow pass
+
+    pub fn getLightViewProjUniform(self: *Renderer) *DataBuffer {
+        return &self.frames[self.current_frame].light_view_proj_uniform;
+    }
+
+    pub fn getShadowMap(self: *Renderer, light_idx: u16) *DepthTexture {
+        return &self.frames[self.current_frame].shadow_maps[light_idx];
+    }
+
+    pub fn getSceneDescriptorSet(self: *Renderer) vk.DescriptorSet {
+        return self.frames[self.current_frame].main_pass_descriptor_set;
+    }
+
+    pub fn getShadowDescriptorSet(self: *Renderer) vk.DescriptorSet {
+        return self.frames[self.current_frame].shadow_pass_descriptor_set;
+    }
+
+    // end shadow pass
 
     pub fn begin(self: *Renderer) !u32 {
         // Wait for previous frame
         _ = try context.*.vkd.waitForFences(1, @ptrCast(&self.getInFlightFence()), vk.TRUE, std.math.maxInt(u64));
 
-        // Acquire next image
-        const result = context.*.vkd.acquireNextImageKHR(
+        const result = try context.*.vkd.acquireNextImageKHR(
             self.swapchain,
             std.math.maxInt(u64),
             self.getImageAvailableSemaphore(),
             .null_handle,
-        ) catch |err| {
-            if (err == error.OutOfDateKHR) {
-                return error.OutOfDateKHR;
-            }
-            return err;
-        };
-
-        // Reset fence
+        );
         try context.*.vkd.resetFences(1, @ptrCast(&self.getInFlightFence()));
-
-        // Begin command buffer
         try context.*.vkd.resetCommandBuffer(self.getCommandBuffer(), .{});
-
         const begin_info = vk.CommandBufferBeginInfo{
             .flags = .{ .one_time_submit_bit = true },
-            .p_inheritance_info = null,
         };
         try context.*.vkd.beginCommandBuffer(self.getCommandBuffer(), &begin_info);
-
         // Transition image layout to color attachment optimal
         const barrier = vk.ImageMemoryBarrier{
             .old_layout = .undefined,
@@ -258,7 +415,6 @@ pub const Renderer = struct {
                 },
             },
             .resolve_mode = .{},
-            .resolve_image_view = .null_handle,
             .resolve_image_layout = .undefined,
         };
 
@@ -436,10 +592,8 @@ pub const Renderer = struct {
 };
 
 pub fn pickSwapPresentMode(present_modes: []vk.PresentModeKHR) vk.PresentModeKHR {
-    for (present_modes) |mode| {
-        if (mode == .mailbox_khr) {
-            return mode;
-        }
+    if (std.mem.containsAtLeastScalar(vk.PresentModeKHR, present_modes, 1, .mailbox_khr)) {
+        return .mailbox_khr;
     }
     return .fifo_khr;
 }

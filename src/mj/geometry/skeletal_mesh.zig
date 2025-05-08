@@ -11,6 +11,7 @@ const animation = @import("animation.zig");
 const Pose = @import("animation.zig").Pose;
 const SkinnedVertex = @import("geometry.zig").SkinnedVertex;
 const SkinnedGeometry = @import("geometry.zig").SkinnedGeometry;
+const Aabb = @import("geometry.zig").Aabb;
 
 pub const Bone = struct {
     bind_transform: Transform = .{},
@@ -26,17 +27,22 @@ pub const SkeletalMesh = struct {
     vertices_len: u32 = 0,
     indices_len: u32 = 0,
     vertex_buffer: DataBuffer = undefined,
+    simple_vertex_buffer: DataBuffer = undefined,
     index_buffer: DataBuffer = undefined,
     material: Handle = undefined,
+    aabb: Aabb = .{},
 
     pub fn init(
         self: *SkeletalMesh,
         geometry: SkinnedGeometry,
+        allocator: std.mem.Allocator,
     ) !void {
         self.vertices_len = @intCast(geometry.vertices.len);
         self.indices_len = @intCast(geometry.indices.len);
+        self.simple_vertex_buffer = try context.*.createLocalBuffer(std.mem.sliceAsBytes(geometry.extractPositions(allocator)), .{ .vertex_buffer_bit = true });
         self.vertex_buffer = try context.*.createLocalBuffer(std.mem.sliceAsBytes(geometry.vertices), .{ .vertex_buffer_bit = true });
         self.index_buffer = try context.*.createLocalBuffer(std.mem.sliceAsBytes(geometry.indices), .{ .index_buffer_bit = true });
+        self.aabb = geometry.aabb;
     }
 
     pub fn playAnimation(self: *SkeletalMesh, animation_name: []const u8, mode: animation.PlayMode) !animation.Instance {
@@ -77,6 +83,7 @@ pub const SkeletalMesh = struct {
 
     pub fn deinit(self: *SkeletalMesh) void {
         self.vertex_buffer.deinit();
+        self.simple_vertex_buffer.deinit();
         self.index_buffer.deinit();
     }
 };

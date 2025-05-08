@@ -56,36 +56,29 @@ fn compile_all_shaders(b: *std.Build, exe: *std.Build.Step.Compile, shader_dir: 
         std.debug.print("Error iterating shader directory: {any}\n", .{err});
         return;
     }) |entry| {
-        if (entry.kind == .directory) {
-            compile_shader(b, exe, shader_dir, entry.name);
+        if (entry.kind != .directory) {
+            continue;
         }
+        const vert_src_path = b.pathJoin(&.{ shader_dir, entry.name, "shader.vert" });
+        const vert_spv_path = b.pathJoin(&.{ "shaders", entry.name, "vert.spv" });
+        compile_shader(b, exe, vert_src_path, vert_spv_path);
+        const frag_src_path = b.pathJoin(&.{ shader_dir, entry.name, "shader.frag" });
+        const frag_spv_path = b.pathJoin(&.{ "shaders", entry.name, "frag.spv" });
+        compile_shader(b, exe, frag_src_path, frag_spv_path);
     }
 }
 
-fn compile_shader(b: *std.Build, exe: *std.Build.Step.Compile, shader_path: []const u8, shader_name: []const u8) void {
-    const vert_cmd = b.addSystemCommand(&.{
+fn compile_shader(b: *std.Build, exe: *std.Build.Step.Compile, input: []const u8, output: []const u8) void {
+    const file = std.fs.cwd().openFile(input, .{}) catch return;
+    std.fs.File.close(file);
+    const cmd = b.addSystemCommand(&.{
         "glslc",
         "--target-env=vulkan1.3",
         "-o",
     });
-    const vert_spv_path = b.pathJoin(&.{ "shaders", shader_name, "vert.spv" });
-    const vert_spv = vert_cmd.addOutputFileArg(vert_spv_path);
-    const vert_src_path = b.pathJoin(&.{ shader_path, shader_name, "shader.vert" });
-    vert_cmd.addFileArg(b.path(vert_src_path));
-    exe.root_module.addAnonymousImport(vert_spv_path, .{
-        .root_source_file = vert_spv,
-    });
-    const frag_cmd = b.addSystemCommand(&.{
-        "glslc",
-        "--target-env=vulkan1.3",
-        "-o",
-    });
-    const frag_spv_path = b.pathJoin(&.{ "shaders", shader_name, "frag.spv" });
-    const frag_spv = frag_cmd.addOutputFileArg(frag_spv_path);
-    const frag_src_path = b.pathJoin(&.{ shader_path, shader_name, "shader.frag" });
-    // std.debug.print("building {s} using {s}\n", .{frag_spv_path, frag_src_path});
-    frag_cmd.addFileArg(b.path(frag_src_path));
-    exe.root_module.addAnonymousImport(frag_spv_path, .{
-        .root_source_file = frag_spv,
+    const output_file = cmd.addOutputFileArg(output);
+    cmd.addFileArg(b.path(input));
+    exe.root_module.addAnonymousImport(output, .{
+        .root_source_file = output_file,
     });
 }

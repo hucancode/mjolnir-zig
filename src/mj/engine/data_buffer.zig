@@ -9,19 +9,23 @@ pub const DataBuffer = struct {
     size: usize,
 
     pub fn write(self: *DataBuffer, data: []const u8) void {
-        if (self.mapped == null) {
-            return;
-        }
-        const dst_ptr: [*]u8 = @ptrCast(self.mapped);
-        const dst = dst_ptr[0..data.len];
-        const src = data;
-        @memcpy(dst, src);
+        self.writeAt(0, data);
     }
 
     pub fn writeAt(self: *DataBuffer, offset: usize, data: []const u8) void {
         if (self.mapped == null) {
+            std.debug.print("Buffer not mapped for writing!\n", .{});
             return;
         }
+        if (offset + data.len > self.size) {
+            std.debug.print("Buffer write out of bounds! Offset: {d}, Size: {d}, Buffer size: {d}\n", .{
+                offset,
+                data.len,
+                self.size,
+            });
+            return;
+        }
+
         const dst_ptr: [*]u8 = @ptrCast(self.mapped);
         const dst = dst_ptr[offset .. offset + data.len];
         const src = data;
@@ -31,6 +35,7 @@ pub const DataBuffer = struct {
     pub fn deinit(self: *DataBuffer) void {
         if (self.mapped != null) {
             context.*.vkd.unmapMemory(self.memory);
+            self.mapped = null;
         }
         context.*.vkd.destroyBuffer(self.buffer, null);
         context.*.vkd.freeMemory(self.memory, null);

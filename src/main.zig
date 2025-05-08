@@ -51,6 +51,22 @@ fn setup() !void {
         // .withColor(.{ 0.5, 0.5, 0.5, 1.0 })
         .build();
 
+    const nx = 10;
+    const ny = 10;
+    const nz = 10;
+    for (0..nx) |x| {
+        for (0..ny) |y| {
+            for (0..nz) |z| {
+                _ = e.spawn()
+                    .atRoot()
+                    .withStaticMesh(mesh)
+                    .withPosition(.{ (@as(f32, @floatFromInt(@as(i32, @intCast(x)) - nx / 2))) * 3.0, (@as(f32, @floatFromInt(@as(i32, @intCast(y)) - ny / 2))) * 3.0, (@as(f32, @floatFromInt(@as(i32, @intCast(z)) - nz / 2))) * 3.0, 0.0 })
+                    .withScale(.{ 0.3, 0.3, 0.3, 1.0 })
+                    .build();
+            }
+        }
+    }
+
     _ = e.spawn()
         .atRoot()
         .withNewStaticMesh(Geometry.quad(.{ 1.0, 1.0, 1.0, 1.0 }), ground_material)
@@ -58,9 +74,6 @@ fn setup() !void {
         .withScale(.{ 20.0, 20.0, 20.0, 0.0 })
         .build();
 
-    // Set up orbit camera
-    e.scene.setCameraMode(.orbit);
-    e.scene.orbit_camera.setTarget(.{ 0.0, 0.0, 0.0, 0.0 });
     const gltf_nodes = try e.loadGltf()
         .withPath("assets/CesiumMan.glb")
         .submit();
@@ -68,7 +81,7 @@ fn setup() !void {
         const armature_ptr = e.nodes.get(armature) orelse continue;
         const skeleton = armature_ptr.children.getLastOrNull() orelse continue;
         const skeleton_ptr = e.nodes.get(skeleton) orelse continue;
-        skeleton_ptr.transform.position = .{ 0.0, 0.0, 0.0, 0.0 };
+        skeleton_ptr.transform.position = .{ 2.0, 0.0, 0.0, 0.0 };
         const name = "Anim_0";
         e.playAnimation(skeleton, name, .loop) catch continue;
     }
@@ -82,32 +95,38 @@ fn setup() !void {
 
         // Alternating between point lights and spot lights
         if (i % 2 == 0) {
-            const spotAngle = std.math.pi / 6.0; // 30 degrees cone
+            const spotAngle = std.math.pi / 4.0;
             light[i] = e.spawn()
                 .atRoot()
                 .withNewSpotLight(color)
                 .withLightAngle(spotAngle)
-                .withLightRadius(5.0) // Longer range for spot lights
+                .withLightRadius(15.0)
+                .withCastShadow(true)
                 .build();
         } else {
             light[i] = e.spawn()
                 .atRoot()
                 .withNewPointLight(color)
+                .withLightRadius(15.0)
+                .withCastShadow(true)
                 .build();
         }
 
         light_cube[i] = e.spawn()
             .withStaticMesh(mesh)
             .withScale(zm.f32x4s(0.15))
-            .withPosition(.{ 0.0, 1.0, 0.0, 0.0 })
+            .withPosition(.{ 0.0, -3.0, 0.0, 0.0 })
             .asChildOf(light[i])
             .build();
     }
-    // _ = e.spawn()
-    //     .atRoot()
-    //     .withNewDirectionalLight(.{ 0.01, 0.01, 0.01, 0.0 })
-    //     .withPosition(.{ 0.0, 10.0, 5.0, 0.0 })
-    //     .build();
+
+    // Add a directional light with shadow for overall illumination
+    _ = e.spawn()
+        .atRoot()
+        .withNewDirectionalLight(.{ 0.3, 0.3, 0.3, 0.0 })
+        .withPosition(.{ 0.0, 10.0, 5.0, 0.0 })
+        .withCastShadow(true)
+        .build();
     const ScrollHandler = struct {
         fn scroll_callback(window: *glfw.Window, xoffset: f64, yoffset: f64) callconv(.C) void {
             _ = window;
@@ -120,7 +139,7 @@ fn setup() !void {
 }
 
 fn update() void {
-    if (e.scene.camera_mode == .orbit) {
+    if (e.scene.camera.mode == .orbit) { // Changed: check mode on the camera object
         // Handle camera rotation with right mouse button
         const mouse_state = e.window.getCursorPos();
         const mouse_button_state = e.window.getMouseButton(.left);
@@ -159,7 +178,7 @@ fn update() void {
         const rz = std.math.cos(t);
         const v = zm.normalize3(zm.f32x4(rx, ry, rz, 0.0));
         const radius = 4.0;
-        light_ptr.transform.position = zm.f32x4(v[0] * radius, v[1] * radius, v[2] * radius, 0.0);
+        light_ptr.transform.position = zm.f32x4(v[0] * radius, 2.0 + v[1] * radius, v[2] * radius, 0.0);
         const light_cube_ptr = e.nodes.get(light_cube[i]).?;
         light_cube_ptr.transform.rotation = zm.quatFromNormAxisAngle(.{ v[0], v[1], v[2], 0.0 }, std.math.pi * e.getTime() * 0.5);
     }
