@@ -161,6 +161,8 @@ pub const Engine = struct {
                     uniform.kind = 2;
                     uniform.angle = angle_data;
                     uniform.position = zm.mul(zm.f32x4(0.0, 0.0, 0.0, 1.0), world_matrix);
+                    // Not sure why but if I use -Y direction (0, -1, 0) the shadow will stop working
+                    // TODO: investigate this
                     uniform.direction = zm.normalize3(zm.mul(zm.f32x4(0.0, -1.0, 0.01, 0.0), world_matrix));
                 },
             }
